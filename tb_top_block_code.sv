@@ -27,6 +27,7 @@ module tb_top_block_code();
 	bit clk = 1'b0;
     bit rst = 1'b0;
     bit [3:0] rx_symbols;
+	bit [3:0] code_length = 13;
 
     integer input_data;
     string line;
@@ -54,7 +55,7 @@ top_block_code_inst
         .rst                (rst),
         .rx_symbols         (rx_symbols),
         .rx_symbols_valid   (rx_symbols_valid),
-        .code_length        ()
+        .code_length        (code_length)
     );
 
 endmodule

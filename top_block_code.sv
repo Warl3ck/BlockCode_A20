@@ -40,33 +40,31 @@ module top_block_code #(
     input [3:0] code_length;
 
 
-    reg [DATA_WIDTH - 1:0] rx_symbols_extended [32];
+    reg [DATA_WIDTH - 1:0] rx_symbols_array [20];
+    reg [DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
     reg rx_symbols_valid_del;
     wire strb_permutation;
 
-    reg [0:7] permutation_for_A20 [32];
+    reg [7:0] permutation_for_A20 [32];
     initial $readmemh("permutation_for_A20_array.txt", permutation_for_A20);
 
-    reg [0:7] rx_symbols_interleaved [32];
+    reg [7:0] rx_symbols_interleaved;// [32];
+    reg [3:0] rx_symbols_interleaved11;// [32];
+    reg [3:0] rx_symbols_interleaved22 [32] = '{32{0}};
 
-    initial begin
-        foreach (rx_symbols_extended[i]) begin
-            rx_symbols_extended[i] <= {DATA_WIDTH{1'b0}};
-        end
-    end
+	reg del;
+	reg [7:0] count = 0;
 
-
-    // extend symbols
-
-    assign rx_symbols_extended[0] = rx_symbols;
 
     always_ff @(posedge clk) begin
         if (rx_symbols_valid) begin
-            foreach (rx_symbols_extended[i]) begin
-                rx_symbols_extended[i+1] <= rx_symbols_extended[i];
+			rx_symbols_array[19] <= rx_symbols;
+            for (int i = 19; i > 0 ; i--) begin
+                rx_symbols_array[i-1] <= rx_symbols_array[i];
             end
         end
     end
+
 
 
     // create feature for permutation
@@ -77,11 +75,44 @@ module top_block_code #(
     assign strb_permutation = rx_symbols_valid_del && !rx_symbols_valid;
 
 
+    // extend symbols
     always_comb begin
-        if (strb_permutation) 
-            foreach(rx_symbols_extended[i]) begin
-                rx_symbols_interleaved[i] <= rx_symbols_extended[permutation_for_A20[i]];
-            end
+    	if (strb_permutation) begin
+        	for (int i = 0; i < 20; i++) begin
+            	rx_symbols_extended[i] = rx_symbols_array[i];
+        	end
+    	end
     end
+    
+    
+    // permution data
+	always_comb begin
+		if (strb_permutation)
+			// del <= 1'b1;
+			for (int i = 1; i < 32; i++) begin
+				rx_symbols_interleaved22[i] = rx_symbols_extended[(permutation_for_A20[i])-1];
+            end
+	end 
+
+
+
+	
+
+
+
+
+
+
+
+
+
+
+    // always_ff @(posedge clk) begin
+    //     if (del) begin
+	// 			count <= count + 1;
+	// 			 rx_symbols_interleaved <= permutation_for_A20[count]; //rx_symbols_extended[permutation_for_A20[count]];
+	// 			 rx_symbols_interleaved11 <= rx_symbols_extended[rx_symbols_interleaved-1];
+	// 	end
+    // end
 
 endmodule
