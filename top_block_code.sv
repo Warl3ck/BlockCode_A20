@@ -22,7 +22,8 @@
 
 module top_block_code #(
 
-		parameter DATA_WIDTH = 4
+		parameter DATA_WIDTH = 4,
+		parameter NUM_SYMBOLS = 20
 	)
     (
         clk,
@@ -52,44 +53,51 @@ module top_block_code #(
     reg [7:0] pucch_mask [4096];
     initial $readmemh("pucch_mask_hex.txt", pucch_mask);
 
-    reg [7:0] rx_symbols_interleaved;// [32];
-    reg [3:0] rx_symbols_interleaved11;// [32];
-    reg [3:0] rx_symbols_interleaved22 [32] = '{32{0}};
+
 
 	integer count = 0;
     reg hadamard_done;
 
-
-    reg [3:0] de_masked [32]; 
-    integer j = 0;
-
     reg [3:0] vec [32]; 
     reg [3:0] vec1 [32]; 
+    reg [3:0] vec2 [32]; 
+
+	integer half;
+	integer num1 = 32;
+
+     task divide_sum  ( 
+                     	input [3:0] data_in [32],
+	            	    input integer num,
+						// input integer half,
+						output [3:0] data_out [32]
+	            );
+
+            // divide sum func
+		// for (int j = 0; j < num/half; j++ ) begin
+            for (int i = 0; i < num/2; i++) begin
+                data_out[i] = data_in[i] + data_in[i+num/2];     
+                data_out[i+num/2] = data_in[i] - data_in[i+num/2];     
+            end
+		// end
+
+	endtask : divide_sum
 
 
-    //  task divide_sum  ( 
-    //                  input [3:0] data_in;
-	//             	    input integer num
-	//             );
+    reg [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
+	reg [DATA_WIDTH - 1:0] de_masked [32]; 
 
-    //         // divide sum func
-    //         // for (int i = 0; i < num; i++) begin
-    //             vec[i] <= de_masked[i] + de_masked[i+16];     
-    //             vec[i+16] <= de_masked[i] - de_masked[i+16];     
-    //         // end
-
-	// endtask : divide_sum
+	integer j = 0; 
 
 
+    // extend symbols
     always_ff @(posedge clk) begin
         if (rx_symbols_valid) begin
-			rx_symbols_array[19] <= rx_symbols;
-            for (int i = 19; i > 0 ; i--) begin
-                rx_symbols_array[i-1] <= rx_symbols_array[i];
+			rx_symbols_extended[NUM_SYMBOLS-1] <= rx_symbols;
+            for (int i = (NUM_SYMBOLS-1); i > 0 ; i--) begin
+                rx_symbols_extended[i-1] <= rx_symbols_extended[i];
             end
         end
     end
-
 
 
     // create feature for permutation
@@ -100,23 +108,14 @@ module top_block_code #(
     assign strb_permutation = rx_symbols_valid_del && !rx_symbols_valid;
 
 
-    // extend symbols
-    always_comb begin
-    	if (strb_permutation) begin
-        	for (int i = 0; i < 20; i++) begin
-            	rx_symbols_extended[i] = rx_symbols_array[i];
-        	end
-    	end
-    end
-    
-    
     // permution data
 	always_comb begin
 		if (strb_permutation)
 			for (int i = 1; i < 32; i++) begin
-				rx_symbols_interleaved22[i] = rx_symbols_extended[(permutation_for_A20[i])-1];
+				rx_symbols_interleaved[i] = rx_symbols_extended[(permutation_for_A20[i])-1];
             end
 	end 
+
 
 
 	// FSM
@@ -136,7 +135,7 @@ module top_block_code #(
 		DE_MASK		    : 	if (count < 128)                next_state = HADAMARD_TRANSFORM;
                             else                            next_state = IDLE;
 
-		HADAMARD_TRANSFORM	: 	/*if (!hadamard_done)  */       next_state = DE_MASK;
+		// HADAMARD_TRANSFORM	: 	/*if (!hadamard_done)  */   next_state = DE_MASK;
                            // else                            next_state = HADAMARD_TRANSFORM;
 
 		// CALCULATE_1 	: 	if (counter == 0)				next_state = SAVE_ARRAY;
@@ -157,7 +156,7 @@ module top_block_code #(
 			end
 		DE_MASK	: begin
                 for (int i = 0; i < 32; i++) begin
-                    de_masked[i] <= (pucch_mask[i+j][7]) ? (~rx_symbols_interleaved22[i] + 1) : rx_symbols_interleaved22[i];
+                    de_masked[i] <= (pucch_mask[i+j][7]) ? (~rx_symbols_interleaved[i] + 1) : rx_symbols_interleaved[i];
                 end
                 j = j + 32;
                 hadamard_done = 1'b1;
@@ -165,18 +164,36 @@ module top_block_code #(
         HADAMARD_TRANSFORM	: begin
                 count = count + 1;
                 hadamard_done = 1'b0;
+				half = num1;
+
+				// for (int i = 0; i < num1; i = i + num1) begin
+					divide_sum (de_masked, num1, vec);
+					divide_sum (vec1, num1, vec2);
+
+
+				// end
+
+
+
+				// half = half >> 1;
+
+//				for (int i = 0; i < num1; i = i + half) begin
+					// divide_sum (vec [0:16-1], num1/2, vec1[0:15]);
+					// divide_sum (vec [16:31], num1/2, vec1[16:31]);
+//				end
+
 
 
                 // // divide sum func
-                for (int i = 0; i < 16; i++) begin
-                    vec[i] <= de_masked[i] + de_masked[i+16];     
-                    vec[i+16] <= de_masked[i] - de_masked[i+16];     
-                end
+                // for (int i = 0; i < 16; i++) begin
+                //     vec[i] <= de_masked[i] + de_masked[i+16];     
+                //     vec[i+16] <= de_masked[i] - de_masked[i+16];     
+                // end
 
-                for (int i = 0; i < 8; i++) begin
-                    vec1[i] <= vec[i] + vec[i+8];     
-                    vec1[i+8] <= vec[i] - vec[i+8];     
-                end
+                // for (int i = 0; i < 8; i++) begin
+                //     vec1[i] <= vec[i] + vec[i+8];     
+                //     vec1[i+8] <= vec[i] - vec[i+8];     
+                // end
 
 
         end 
