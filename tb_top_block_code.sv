@@ -33,19 +33,37 @@ module tb_top_block_code();
     string line;
     bit rx_symbols_valid;
 
+    event rst_done;
+
     always #(CLK_PERIOD/2) clk = ~clk;
 
 
 
 	initial begin
         input_data = $fopen("input_snr-2_size13.txt", "r");
-        while (!$feof(input_data)) begin
-    	    @(posedge clk);
-    	    $fgets(line,input_data);
-    	    rx_symbols <= line.atoi();
-            rx_symbols_valid <= 1'b1;
-        end
-        rx_symbols_valid <= 1'b0;
+        rst = 1'b0;
+        fork 
+            begin
+                #50;
+                @(posedge clk);
+                rst = 1'b1;
+                #20;
+                @(posedge clk);
+                rst = 1'b0;
+                -> rst_done;
+            end
+
+            begin
+                @(rst_done);
+                while (!$feof(input_data)) begin
+    	            @(posedge clk);
+    	            $fgets(line,input_data);
+    	            rx_symbols <= line.atoi();
+                    rx_symbols_valid <= 1'b1;
+                end
+                rx_symbols_valid <= 1'b0;
+            end
+        join
     end
 
 top_block_code  #(.DATA_WIDTH(4))
