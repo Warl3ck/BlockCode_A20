@@ -30,7 +30,9 @@ module top_block_code #(
         rst,
         rx_symbols,
         rx_symbols_valid,
-        code_length
+        code_length,
+        //
+        vec4_o
 
     );
 
@@ -39,6 +41,7 @@ module top_block_code #(
     input [DATA_WIDTH - 1:0] rx_symbols;
     input rx_symbols_valid;
     input [3:0] code_length;
+    output [3:0] vec4_o;
 
 
     reg [DATA_WIDTH - 1:0] rx_symbols_array [20];
@@ -60,27 +63,29 @@ module top_block_code #(
 
     reg [3:0] vec [32]; 
     reg [3:0] vec1 [32]; 
-    reg [3:0] vec2 [32]; 
+    reg [3:0] vec2 [32];
+    reg [3:0] vec3 [32];  
+    reg [3:0] vec4 [32];  
 
 	integer half;
 	integer num1 = 32;
 
-     task divide_sum  ( 
-                     	input [3:0] data_in [32],
-	            	    input integer num,
-						// input integer half,
-						output [3:0] data_out [32]
-	            );
+    //  task divide_sum  ( 
+    //                  	input [3:0] data_in [32],
+	//             	    input integer num,
+	// 					// input integer half,
+	// 					output [3:0] data_out [32]
+	//             );
 
-            // divide sum func
-		// for (int j = 0; j < num/half; j++ ) begin
-            for (int i = 0; i < num/2; i++) begin
-                data_out[i] = data_in[i] + data_in[i+num/2];     
-                data_out[i+num/2] = data_in[i] - data_in[i+num/2];     
-            end
-		// end
+    //         // divide sum func
+	// 	// for (int j = 0; j < num/half; j++ ) begin
+    //         for (int i = 0; i < num/2; i++) begin
+    //             data_out[i] = data_in[i] + data_in[i+num/2];     
+    //             data_out[i+num/2] = data_in[i] - data_in[i+num/2];     
+    //         end
+	// 	// end
 
-	endtask : divide_sum
+	// endtask : divide_sum
 
 
     reg [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
@@ -167,12 +172,9 @@ module top_block_code #(
 				half = num1;
 
 				// for (int i = 0; i < num1; i = i + num1) begin
-					divide_sum (de_masked, num1, vec);
-					divide_sum (vec1, num1, vec2);
-
-
+					// divide_sum (de_masked, num1, vec);
+					// divide_sum (vec1, num1, vec2);
 				// end
-
 
 
 				// half = half >> 1;
@@ -183,17 +185,87 @@ module top_block_code #(
 //				end
 
 
+                // divide sum func
+                for (int i = 0; i < 16; i++) begin
+                    vec[i] <= de_masked[i] + de_masked[i+16];     
+                    vec[i+16] <= de_masked[i] - de_masked[i+16];     
+                end
 
-                // // divide sum func
-                // for (int i = 0; i < 16; i++) begin
-                //     vec[i] <= de_masked[i] + de_masked[i+16];     
-                //     vec[i+16] <= de_masked[i] - de_masked[i+16];     
-                // end
+                for (int i = 0; i < 8; i++) begin
+                    vec1[i] <= vec[i] + vec[i+8];        
+                    vec1[i+8] <= vec[i] - vec[i+8];   
+                    vec1[i+16] <= vec[i+16] + vec[i+24];        
+                    vec1[i+24] <= vec[i+16] - vec[i+24];  
+                end
 
-                // for (int i = 0; i < 8; i++) begin
-                //     vec1[i] <= vec[i] + vec[i+8];     
-                //     vec1[i+8] <= vec[i] - vec[i+8];     
-                // end
+                for (int i = 0; i < 4; i++) begin // 8 matlab
+                    // part 1
+                    vec2[i] <= vec1[i] + vec1[i+4];        
+                    vec2[i+4] <= vec1[i] - vec1[i+4];   
+                    vec2[i+8] <= vec1[i+8] + vec1[i+12];        
+                    vec2[i+12] <= vec1[i+8] - vec1[i+12];  
+                    // part 2 
+                    vec2[i+16] <= vec1[i+16] + vec1[i+20];      // ?? dont have bits  
+                    vec2[i+20] <= vec1[i+16] - vec1[i+20];   
+                    vec2[i+24] <= vec1[i+24] + vec1[i+28];        
+                    vec2[i+28] <= vec1[i+24] - vec1[i+28];  
+                end
+
+                for (int i = 0; i < 2; i++) begin // 4 matlab
+                    vec3[i]     <= vec2[i]      + vec2[i+2];        
+                    vec3[i+2]   <= vec2[i]      - vec2[i+2]; 
+                    vec3[i+4]   <= vec2[i+4]    + vec2[i+6];       
+                    vec3[i+6]   <= vec2[i+4]    - vec2[i+6]; 
+                    vec3[i+8]   <= vec2[i+8]    + vec2[i+10]; 
+                    vec3[i+10]  <= vec2[i+8]    - vec2[i+10]; 
+                    vec3[i+12]  <= vec2[i+12]   + vec2[i+14]; 
+                    vec3[i+14]  <= vec2[i+12]   - vec2[i+14]; 
+                    vec3[i+16]  <= vec2[i+16]   + vec2[i+18];        
+                    vec3[i+18]  <= vec2[i+16]   - vec2[i+18]; 
+                    vec3[i+20]  <= vec2[i+20]   + vec2[i+22]; 
+                    vec3[i+22]  <= vec2[i+20]   - vec2[i+22]; 
+                    vec3[i+24]  <= vec2[i+24]   + vec2[i+26];   
+                    vec3[i+26]  <= vec2[i+24]   - vec2[i+26]; 
+                    vec3[i+28]  <= vec2[i+28]   + vec2[i+30]; 
+                    vec3[i+30]  <= vec2[i+28]   - vec2[i+30]; 
+                end
+
+
+                for (int i = 0; i < 1; i++) begin // 4 matlab
+                    vec4[i]     <= vec3[i]      + vec3[i+1];        
+                    vec4[i+1]   <= vec3[i]      - vec3[i+1];
+                    vec4[i+2]   <= vec3[i+2]    + vec3[i+3];   
+                    vec4[i+3]   <= vec3[i+2]    - vec3[i+3]; 
+                    vec4[i+4]   <= vec3[i+4]    + vec3[i+5]; 
+                    vec4[i+5]   <= vec3[i+4]    - vec3[i+5]; 
+                    vec4[i+6]   <= vec3[i+6]    + vec3[i+7]; 
+                    vec4[i+7]   <= vec3[i+6]    - vec3[i+7]; 
+                    vec4[i+8]   <= vec3[i+8]    + vec3[i+9]; 
+                    vec4[i+9]   <= vec3[i+8]    - vec3[i+9];
+                    vec4[i+10]  <= vec3[i+10]   + vec3[i+11]; 
+                    vec4[i+11]  <= vec3[i+10]   - vec3[i+11];
+                    vec4[i+12]  <= vec3[i+12]   + vec3[i+13]; 
+                    vec4[i+13]  <= vec3[i+12]   - vec3[i+13];
+                    vec4[i+14]  <= vec3[i+14]   + vec3[i+15];        
+                    vec4[i+15]  <= vec3[i+14]   - vec3[i+15]; 
+                    vec4[i+16]  <= vec3[i+16]   + vec3[i+17];        
+                    vec4[i+17]  <= vec3[i+16]   - vec3[i+17]; 
+                    vec4[i+18]  <= vec3[i+18]   + vec3[i+19];        
+                    vec4[i+19]  <= vec3[i+18]   - vec3[i+19];
+                    vec4[i+20]  <= vec3[i+20]   + vec3[i+21];        
+                    vec4[i+21]  <= vec3[i+20]   - vec3[i+21];  
+                    vec4[i+22]  <= vec3[i+22]   + vec3[i+23];        
+                    vec4[i+23]  <= vec3[i+22]   - vec3[i+23]; 
+                    vec4[i+24]  <= vec3[i+24]   + vec3[i+25]; 
+                    vec4[i+25]  <= vec3[i+24]   - vec3[i+25]; 
+                    vec4[i+26]  <= vec3[i+26]   + vec3[i+27];  
+                    vec4[i+27]  <= vec3[i+26]   - vec3[i+27];
+                    vec4[i+28]  <= vec3[i+28]   + vec3[i+29]; 
+                    vec4[i+29]  <= vec3[i+28]   - vec3[i+29];
+                    vec4[i+30]  <= vec3[i+30]   + vec3[i+31];        
+                    vec4[i+31]  <= vec3[i+30]   - vec3[i+31];  
+                end
+
 
 
         end 
@@ -201,6 +273,6 @@ module top_block_code #(
 			endcase
 		end
 
-
+    assign vec4_o = vec4[30]; 
 
 endmodule

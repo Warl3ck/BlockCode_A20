@@ -22,7 +22,7 @@
 
 module tb_top_block_code();
 
-    parameter CLK_PERIOD = 10ns;
+    parameter CLK_PERIOD = 4ns; // 250 MHz
 
 	bit clk = 1'b0;
     bit rst = 1'b0;
