@@ -29,7 +29,7 @@ module tb_top_block_code();
     bit [3:0] rx_symbols;
 	bit [3:0] code_length = 13;
 
-    integer input_data;
+    integer input_data; //, hadamard_out;
     string line;
     bit rx_symbols_valid;
 
@@ -38,9 +38,9 @@ module tb_top_block_code();
     always #(CLK_PERIOD/2) clk = ~clk;
 
 
-
 	initial begin
         input_data = $fopen("input_snr-2_size13.txt", "r");
+        // hadamard_out = $fopen("hadamard_transform_out.txt", "w");
         rst = 1'b0;
         fork 
             begin
