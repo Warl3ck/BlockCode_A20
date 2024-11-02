@@ -27,27 +27,29 @@ module top_block_code #(
 	)
     (
         clk,
-        rst,
-        rx_symbols,
-        rx_symbols_valid,
+        s_axis_aresetn,
+        s_axis_tdata,
+        s_axis_tvalid,
         code_length,
         //
-        vec4_o
+        m_axis_tdata,
+        m_axis_tvalid,
+        m_axis_tlast
     );
 
     input clk;
-    input rst;
-    input [DATA_WIDTH - 1:0] rx_symbols;
-    input rx_symbols_valid;
-    input [3:0] code_length;
-    output [3:0] vec4_o;
-
+    input s_axis_aresetn;
+    input [DATA_WIDTH - 1:0] s_axis_tdata;
+    input s_axis_tvalid;
+    input [7:0] code_length;
+    output reg [12:0] m_axis_tdata;
+    output reg m_axis_tvalid;
+    output reg m_axis_tlast;
 
     reg  [7:0] pucch_mask [4096] = '{4096{8'h01}};	
 
 
-    initial begin // -1 index for matlab 
-
+    initial begin // -1 index matlab 
         pucch_mask[36] = 8'hFF;	    pucch_mask[38] = 8'hFF;     pucch_mask[39] = 8'hFF;	    pucch_mask[41] = 8'hFF;	    pucch_mask[42] = 8'hFF;	    pucch_mask[44] = 8'hFF;	    pucch_mask[45] = 8'hFF;	    pucch_mask[46] = 8'hFF;	    pucch_mask[50] = 8'hFF;	    pucch_mask[51] = 8'hFF;	    pucch_mask[52] = 8'hFF;	    pucch_mask[53] = 8'hFF;	    pucch_mask[56] = 8'hFF;	    pucch_mask[57] = 8'hFF;	    pucch_mask[59] = 8'hFF;	    pucch_mask[60] = 8'hFF;	    
         pucch_mask[65] = 8'hFF;	    pucch_mask[67] = 8'hFF;     pucch_mask[68] = 8'hFF;	    pucch_mask[70] = 8'hFF;	    pucch_mask[71] = 8'hFF;	    pucch_mask[73] = 8'hFF;	    pucch_mask[74] = 8'hFF;	    pucch_mask[76] = 8'hFF;	    pucch_mask[77] = 8'hFF;	    pucch_mask[78] = 8'hFF;	    pucch_mask[82] = 8'hFF;	    pucch_mask[83] = 8'hFF;	    pucch_mask[84] = 8'hFF;	    pucch_mask[85] = 8'hFF;	    pucch_mask[91] = 8'hFF;	    pucch_mask[92] = 8'hFF;
         pucch_mask[97] = 8'hFF;	    pucch_mask[99] = 8'hFF;     pucch_mask[120] = 8'hFF;	pucch_mask[121] = 8'hFF;	pucch_mask[129] = 8'hFF;	pucch_mask[131] = 8'hFF;	pucch_mask[132] = 8'hFF;	pucch_mask[134] = 8'hFF;	pucch_mask[135] = 8'hFF;	pucch_mask[137] = 8'hFF;	pucch_mask[138] = 8'hFF;	pucch_mask[140] = 8'hFF;	pucch_mask[141] = 8'hFF;	pucch_mask[142] = 8'hFF;	pucch_mask[146] = 8'hFF;	pucch_mask[147] = 8'hFF;
@@ -128,13 +130,7 @@ module top_block_code #(
         pucch_mask[3942] = 8'hFF;	pucch_mask[3943] = 8'hFF;	pucch_mask[3945] = 8'hFF;	pucch_mask[3946] = 8'hFF;	pucch_mask[3952] = 8'hFF;	pucch_mask[3954] = 8'hFF;	pucch_mask[3956] = 8'hFF;	pucch_mask[3964] = 8'hFF;	pucch_mask[3969] = 8'hFF;	pucch_mask[3980] = 8'hFF;	pucch_mask[3981] = 8'hFF;	pucch_mask[3982] = 8'hFF;	pucch_mask[3984] = 8'hFF;	pucch_mask[3987] = 8'hFF;	pucch_mask[3989] = 8'hFF;	pucch_mask[3996] = 8'hFF;
         pucch_mask[4001] = 8'hFF;	pucch_mask[4004] = 8'hFF;	pucch_mask[4006] = 8'hFF;	pucch_mask[4007] = 8'hFF;	pucch_mask[4009] = 8'hFF;	pucch_mask[4010] = 8'hFF;	pucch_mask[4016] = 8'hFF;	pucch_mask[4018] = 8'hFF;	pucch_mask[4020] = 8'hFF;	pucch_mask[4024] = 8'hFF;	pucch_mask[4025] = 8'hFF;	pucch_mask[4027] = 8'hFF;	pucch_mask[4035] = 8'hFF;	pucch_mask[4036] = 8'hFF;	pucch_mask[4038] = 8'hFF;	pucch_mask[4039] = 8'hFF;
         pucch_mask[4041] = 8'hFF;	pucch_mask[4042] = 8'hFF;	pucch_mask[4048] = 8'hFF;	pucch_mask[4050] = 8'hFF;	pucch_mask[4052] = 8'hFF;	pucch_mask[4059] = 8'hFF;	pucch_mask[4067] = 8'hFF;	pucch_mask[4076] = 8'hFF;	pucch_mask[4077] = 8'hFF;	pucch_mask[4078] = 8'hFF;	pucch_mask[4080] = 8'hFF;	pucch_mask[4083] = 8'hFF;	pucch_mask[4085] = 8'hFF;	pucch_mask[4088] = 8'hFF;	pucch_mask[4089] = 8'hFF;	pucch_mask[4092] = 8'hFF;
-
     end
-
-        // debug
-    integer hadamard_out, hadamard_check;
-
-      
 
     reg [DATA_WIDTH - 1:0] rx_symbols_array [20];
     reg [DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
@@ -155,61 +151,35 @@ module top_block_code #(
     end
 
 
-	integer count = 0;
-    reg hadamard_done;
-
-
-    reg [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
-	reg signed [DATA_WIDTH-1:0] de_masked [32]; 
-    reg signed [DATA_WIDTH:0] vec [32]; 
-    reg signed [DATA_WIDTH+1:0] vec1 [32]; 
-    reg signed [DATA_WIDTH+2:0] vec2 [32];
-    reg signed [DATA_WIDTH+2:0] vec2_reg [32];
-    reg signed [DATA_WIDTH+3:0] vec3 [32];  
+    reg signed  [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
+	reg signed  [DATA_WIDTH - 1:0] de_masked [32]; 
+    reg signed  [DATA_WIDTH:0] vec [32]; 
+    reg signed  [DATA_WIDTH + 1:0] vec1 [32]; 
+    reg signed  [DATA_WIDTH + 2:0] vec2 [32];
+    reg signed  [DATA_WIDTH + 2:0] vec2_reg [32];
+    reg signed  [DATA_WIDTH + 3:0] vec3 [32];  
     //
-    reg signed [DATA_WIDTH+4:0] vec4 [32]; 
-    reg signed [DATA_WIDTH+4:0] vec4_reg [32]; 
-    reg signed [DATA_WIDTH+4:0] absolute [32]; 
-    reg [DATA_WIDTH+4:0] max_i;
-    reg [DATA_WIDTH+4:0] max_val;
+    reg signed  [DATA_WIDTH + 4:0] vec4 [32]; 
+    reg signed  [DATA_WIDTH + 4:0] vec4_reg [32]; 
+    reg signed  [DATA_WIDTH + 4:0] absolute [32]; 
+    reg         [DATA_WIDTH + 4:0] max_i;
+    reg         [DATA_WIDTH + 4:0] max_val;
     //
     reg [7:0] index_i;
     reg [7:0] max_row;
     reg [7:0] max_column;
     reg sign;
 
+    reg [12:0] decoded_bits;
 
-
-    // reg [15:0] counter = 0;
-
+    integer count = 0;
 	integer j = 0; 
-
-    //  task divide_sum  ( 
-    //                  	input [3:0] data_in [32],
-	//             	    input integer num,
-	// 					// input integer half,
-	// 					output [3:0] data_out [32]
-	//             );
-
-    //         // divide sum func
-	// 	// for (int j = 0; j < num/half; j++ ) begin
-    //         for (int i = 0; i < num/2; i++) begin
-    //             data_out[i] = data_in[i] + data_in[i+num/2];     
-    //             data_out[i+num/2] = data_in[i] - data_in[i+num/2];     
-    //         end
-	// 	// end
-
-	// endtask : divide_sum
-
-
- 
-
 
     // extend symbols
     always_ff @(posedge clk) begin
-        if (rx_symbols_valid) begin
-			rx_symbols_extended[NUM_SYMBOLS-1] <= rx_symbols;
-            for (int i = (NUM_SYMBOLS-1); i > 0 ; i--) begin
+        if (s_axis_tvalid) begin
+			rx_symbols_extended[NUM_SYMBOLS - 1] <= s_axis_tdata;
+            for (int i = (NUM_SYMBOLS - 1); i > 0 ; i--) begin
                 rx_symbols_extended[i-1] <= rx_symbols_extended[i];
             end
         end
@@ -218,44 +188,46 @@ module top_block_code #(
 
     // create feature for permutation
     always_ff @(posedge clk) begin
-        rx_symbols_valid_del <= rx_symbols_valid;
+        rx_symbols_valid_del <= s_axis_tvalid;
     end
 
-    assign strb_permutation = rx_symbols_valid_del && !rx_symbols_valid;
+    assign strb_permutation = rx_symbols_valid_del && !s_axis_tvalid;
 
 
     // permution data
 	always_comb begin
 		if (strb_permutation)
 			for (int i = 1; i < 32; i++) begin
-				rx_symbols_interleaved[i] = rx_symbols_extended[(permutation_for_A20[i])-1];
+				rx_symbols_interleaved[i] = rx_symbols_extended[(permutation_for_A20[i]) - 1];
             end
 	end 
 
 	// FSM
-	typedef enum { IDLE, DE_MASK, HADAMARD_TRANSFORM_0, HADAMARD_TRANSFORM_0_LATCH, HADAMARD_TRANSFORM_1, HADAMARD_TRANSFORM_1_LATCH, FIND_MAX } statetype;
+	typedef enum { IDLE, DE_MASK, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, XXX } statetype;
 	statetype state, next_state;
 
 
 	always_ff @(posedge clk)
-		if (rst) state <= IDLE;
+		if (!s_axis_aresetn) state <= IDLE;
 		else state <= next_state;
 
     always_comb begin
-		/*next_state = XXX;*/
+		next_state = XXX;
 		case (state)
-		IDLE 			            :   if (strb_permutation)  		next_state = DE_MASK;
-							            else						next_state = IDLE;
-		DE_MASK		                : 	if (count < 128)            next_state = HADAMARD_TRANSFORM_0;
-                                        else if (count == 128)      next_state = IDLE;
-                                        else                        next_state = DE_MASK;
-		HADAMARD_TRANSFORM_0	    : 	                            next_state = HADAMARD_TRANSFORM_0_LATCH;
-        HADAMARD_TRANSFORM_0_LATCH  :                               next_state = HADAMARD_TRANSFORM_1;
-        HADAMARD_TRANSFORM_1	    : 	                            next_state = HADAMARD_TRANSFORM_1_LATCH;
-        HADAMARD_TRANSFORM_1_LATCH	: 	                            next_state = FIND_MAX;
-        FIND_MAX                    :                               next_state = DE_MASK;
-
-		// /*default 		: 	next_state = XXX;*/
+		    IDLE 			    :   if (strb_permutation)  		
+                                        next_state = DE_MASK;
+		    					    else						
+                                        next_state = IDLE;
+		    DE_MASK		        : 	    next_state = HADAMARD_STAGE_0;
+		    HADAMARD_STAGE_0	: 	    next_state = HADAMARD_REG_0;
+            HADAMARD_REG_0      :       next_state = HADAMARD_STAGE_1;
+            HADAMARD_STAGE_1	: 	    next_state = HADAMARD_REG_1;
+            HADAMARD_REG_1	    : 	    next_state = FIND_MAX;
+            FIND_MAX            :   if (code_length > 6 && count < 128) 
+                                        next_state = DE_MASK;
+                                    else                        
+                                        next_state = IDLE;
+		    default 		    : 	    next_state = XXX;
 		endcase
 	end
 
@@ -264,21 +236,22 @@ module top_block_code #(
 		case (state)
 		IDLE	: begin
                 count = 0;
-                hadamard_done = 1'b0;
                 j = 0;
                 max_i = 0;
                 max_val = 0;
 		end
 		DE_MASK	: begin
-                for (int i = 0; i < 32; i++) begin
-                    de_masked[i] = (pucch_mask[i+j][7]) ? (~rx_symbols_interleaved[i] + 1) : rx_symbols_interleaved[i];
+                if (code_length > 6) begin
+                    for (int i = 0; i < 32; i++) begin
+                        de_masked[i] = (pucch_mask[i+j][7]) ? (~rx_symbols_interleaved[i] + 1) : rx_symbols_interleaved[i]; // mult on pucch_mask
+                    end
+                    j = j + 32;
                 end
-                j = j + 32;
-                hadamard_done = 1'b1;
+                else
+                    de_masked = rx_symbols_interleaved;
         end 
-        HADAMARD_TRANSFORM_0	: begin
+        HADAMARD_STAGE_0	: begin
                 count = count + 1;
-                hadamard_done = 1'b0;
 
                 for (int i = 0; i < 16; i++) begin
                     vec[i] = de_masked[i] + de_masked[i+16];     
@@ -306,10 +279,10 @@ module top_block_code #(
                 end
         end
 
-        HADAMARD_TRANSFORM_0_LATCH : begin
+        HADAMARD_REG_0 : begin
         end
 
-        HADAMARD_TRANSFORM_1 : begin
+        HADAMARD_STAGE_1 : begin
 
                for (int i = 0; i < 2; i++) begin // 4 matlab
                    vec3[i]    = vec2_reg[i]    + vec2_reg[i+2];        
@@ -366,14 +339,14 @@ module top_block_code #(
                end
             end 
 
-            HADAMARD_TRANSFORM_1_LATCH : begin
+            HADAMARD_REG_1 : begin
                 max_i = 0;
             end
 
             FIND_MAX : begin
                 // abs(A)
                 for (int i = 0; i < 32; i++) begin
-                    absolute[i] = (vec4_reg[i][DATA_WIDTH]) ? (~vec4_reg[i] + 1) : vec4_reg[i];
+                    absolute[i] = (vec4_reg[i][DATA_WIDTH+4]) ? (~vec4_reg[i] + 1) : vec4_reg[i];
                 end
 
                 // Find max value in current array
@@ -386,10 +359,11 @@ module top_block_code #(
 
                 if (max_i > max_val) begin
                     max_val = max_i;
-                    max_row = count - 1;
+                    max_row = (code_length > 6 ) ? count - 1 : 0;
                     max_column = index_i;
-                    sign = vec4_reg[max_column + 1][DATA_WIDTH];
+                    sign = vec4_reg[max_column + 1][DATA_WIDTH+4];
                 end
+                decoded_bits = {!sign, max_column[0], max_column[1], max_column[2], max_column[3], max_column[4], max_row[6:0]};
             end
 		endcase
 	end
@@ -397,41 +371,51 @@ module top_block_code #(
     always_ff @(posedge clk) begin
         vec2_reg <= vec2;
         vec4_reg <= vec4;
+        if (state == FIND_MAX && ((code_length > 6 && count == 128) || (code_length <= 6))) begin
+            m_axis_tdata <= decoded_bits;
+            m_axis_tvalid <= 1'b1;
+            m_axis_tlast <= 1'b1;
+        end else begin
+            m_axis_tvalid <= 1'b0;
+            m_axis_tlast <= 1'b0;
+        end
     end
 
 
-    assign vec4_o = max_i[3:0]; 
+
+    
 
 
 
 
 
-//    string line, line_m;
-//    integer de_masked_check;
-//    integer k = 0;
+//    // debug
+//   integer hadamard_out, hadamard_check;
+//   string line, line_m;
+//   integer de_masked_check;
+//   integer k = 0;
 
 
-//    // // debug
-//    initial begin
-//        hadamard_out = $fopen("hadamard_dout.txt", "w");    
-//        hadamard_check = $fopen("hadamard_transform_check.txt", "r");    
-//        de_masked_check = $fopen("de_masked_check.txt", "r");  
+//   initial begin
+//       hadamard_out = $fopen("hadamard_dout.txt", "w");    
+//       hadamard_check = $fopen("hadamard_transform_check.txt", "r");    
+//       de_masked_check = $fopen("de_masked_check.txt", "r");  
+//   end
+
+//    always_comb begin
+//        if (state == DE_MASK) begin
+//            foreach(de_masked[i]) begin
+//                $fgets(line_m, de_masked_check);
+//                // $fdisplay(hadamard_out, vec4[i]);
+//                $display ((k+i),line_m.atoi(), de_masked[i]);
+//                if (line_m.atoi() !== de_masked[i]) begin
+// 	    			$display ("error");
+//                    $finish;
+//                end
+//            end  
+//            k = k + 32;
+//        end
 //    end
-
-//    // always_comb begin
-//    //     if (state == DE_MASK) begin
-//    //         foreach(de_masked[i]) begin
-//    //             $fgets(line_m, de_masked_check);
-//    //             // $fdisplay(hadamard_out, vec4[i]);
-//    //             $display ((k+i),line_m.atoi(), de_masked[i]);
-//    //             if (line_m.atoi() !== de_masked[i]) begin
-//	//     			$display ("error");
-//    //                 $finish;
-//    //             end
-//    //         end  
-//    //         k = k + 32;
-//    //     end
-//    // end
 
 //    always_comb begin
 //        if (state == HADAMARD_TRANSFORM_1) begin

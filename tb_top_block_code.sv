@@ -23,13 +23,15 @@
 module tb_top_block_code();
 
     parameter CLK_PERIOD = 4ns; // 250 MHz
+    parameter NUM_SYMBOLS = 20;
 
 	bit clk = 1'b0;
-    bit rst = 1'b0;
+    bit arst = 1'b0;
     bit [3:0] rx_symbols;
-	bit [3:0] code_length = 13;
+    bit m_axis_tlast;
+    bit [7:0] code_length;
 
-    integer input_data; //, hadamard_out;
+    integer input_data, input_data1; //, hadamard_out;
     string line;
     bit rx_symbols_valid;
 
@@ -40,40 +42,52 @@ module tb_top_block_code();
 
 	initial begin
         input_data = $fopen("input_snr-2_size13.txt", "r");
-        // hadamard_out = $fopen("hadamard_transform_out.txt", "w");
-        rst = 1'b0;
+        input_data1 = $fopen("input_snr-2_size5.txt", "r");
+        arst = 1'b0;
         fork 
             begin
-                #50;
+                #150;
                 @(posedge clk);
-                rst = 1'b1;
-                #20;
-                @(posedge clk);
-                rst = 1'b0;
+                arst = 1'b1;
                 -> rst_done;
             end
 
             begin
-                @(rst_done);
-                while (!$feof(input_data)) begin
+                // @(rst_done);
+                // code_length = 13;
+                // while (!$feof(input_data)) begin
+    	        //     @(posedge clk);
+    	        //     $fgets(line,input_data);
+    	        //     rx_symbols <= line.atoi();
+                //     rx_symbols_valid <= 1'b1;
+                // end
+                // rx_symbols_valid <= 1'b0;
+            end
+        join
+            begin
+                // @(m_axis_tlast);
+                code_length = 5;
+                while (!$feof(input_data1)) begin
     	            @(posedge clk);
-    	            $fgets(line,input_data);
+    	            $fgets(line,input_data1);
     	            rx_symbols <= line.atoi();
                     rx_symbols_valid <= 1'b1;
                 end
                 rx_symbols_valid <= 1'b0;
             end
-        join
     end
 
-top_block_code  #(.DATA_WIDTH(4))
+top_block_code  #(.DATA_WIDTH(4), .NUM_SYMBOLS(NUM_SYMBOLS))
 top_block_code_inst
     (
         .clk                (clk),
-        .rst                (rst),
-        .rx_symbols         (rx_symbols),
-        .rx_symbols_valid   (rx_symbols_valid),
-        .code_length        (code_length)
+        .s_axis_aresetn     (arst),
+        .code_length        (code_length),
+        .s_axis_tdata       (rx_symbols),
+        .s_axis_tvalid      (rx_symbols_valid),
+        .m_axis_tdata       (),
+        .m_axis_tvalid      (),
+        .m_axis_tlast       (m_axis_tlast)
     );
 
 endmodule
