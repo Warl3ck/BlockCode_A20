@@ -22,7 +22,7 @@
 
 module top_block_code #(
 
-		parameter DATA_WIDTH = 4,
+		parameter DATA_WIDTH = 8,
 		parameter NUM_SYMBOLS = 20
 	)
     (
@@ -218,7 +218,7 @@ module top_block_code #(
     always_comb begin
 		next_state = XXX;
 		case (state)
-		    IDLE 			    :   if (s_axis_tlast)  		
+		    IDLE 			    :   if (s_axis_tlast && s_axis_tvalid)  		
                                         next_state = DE_MASK;
 		    					    else						
                                         next_state = IDLE;
@@ -243,6 +243,7 @@ module top_block_code #(
                 j = 0;
                 max_i = 0;
                 max_val = 0;
+
 		end
 		DE_MASK	: begin
                 if (code_length > 6) begin
@@ -367,7 +368,7 @@ module top_block_code #(
                     max_column = index_i;
                     sign = vec4_reg[max_column + 1][DATA_WIDTH+4];
                 end
-                decoded_bits = {!sign, max_column[0], max_column[1], max_column[2], max_column[3], max_column[4], max_row[6:0]};
+                decoded_bits = {sign, max_column[0], max_column[1], max_column[2], max_column[3], max_column[4], max_row[6:0]};
             end
 		endcase
 	end
@@ -388,10 +389,10 @@ module top_block_code #(
 
 
     always_ff @(posedge clk) begin
-        if (s_axis_tvalid)
-            s_axis_tready_i <= 1'b1;
-        else
+        if (!s_axis_aresetn || state > IDLE)
             s_axis_tready_i <= 1'b0;
+        else 
+            s_axis_tready_i <= 1'b1;
     end
 
 
