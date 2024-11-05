@@ -1,48 +1,88 @@
+
+
+
+
 `timescale 1ns / 1ps
 //////////////////////////////////////////////////////////////////////////////////
-// Company: 
-// Engineer: 
-// 
-// Create Date: 24.10.2024 15:28:42
-// Design Name: 
-// Module Name: tb_top_block_code
-// Project Name: 
-// Target Devices: 
-// Tool Versions: 
-// Description: 
-// 
-// Dependencies: 
-// 
-// Revision:
-// Revision 0.01 - File Created
-// Additional Comments:
-// 
-//////////////////////////////////////////////////////////////////////////////////
+
+import axi4stream_vip_pkg::*;
+import axi4stream_vip_mst_pkg::*;
 
 
 module tb_top_block_code();
 
-    parameter CLK_PERIOD = 4ns; // 250 MHz
-    parameter NUM_SYMBOLS = 20;
+    localparam CLK_PERIOD = 4ns; // 250 MHz
+    localparam NUM_SYMBOLS = 20;
+    localparam DATA_WIDTH = 8;
 
 	bit clk = 1'b0;
     bit arst = 1'b0;
     bit [3:0] rx_symbols;
     bit m_axis_tlast;
+    bit m_axis_tvalid;
     bit [7:0] code_length;
 
-    integer input_data, input_data1; //, hadamard_out;
+    integer input_data;
+    integer count = 0;
     string line;
     bit rx_symbols_valid;
+    
+    
+    bit [7:0] data [7:0] = '{8{8'b1}}; 
 
     event rst_done;
 
+    wire m_axis_tready;
+    wire [DATA_WIDTH-1 : 0] m_axis_tdata;
+
     always #(CLK_PERIOD/2) clk = ~clk;
 
+	xil_axi4stream_data_beat out_tdata, in_tdata;
+    axi4stream_vip_mst_mst_t	 axi4stream_vip_mst_mst;
 
+    task mst_gen_transaction(   input xil_axi4stream_data_beat in_tdata,
+                                input integer count);
+        axi4stream_transaction                         wr_transaction; 
+        wr_transaction = axi4stream_vip_mst_mst.driver.create_transaction("Master VIP write transaction");
+//        wr_transaction.set_xfer_alignment(XIL_AXI4STREAM_XFER_RANDOM);
+        
+//            wr_transaction.set_delay(0);
+            // set tid bit to 0
+            // wr_transaction.set_id(0);
+           if(count == NUM_SYMBOLS-1) begin
+               // set tlast to 1
+               wr_transaction.set_last(1);
+           end else begin
+               // set tlast to 0
+               wr_transaction.set_last(0);
+           end
+            
+            //
+        //    out_tdata = wr_transaction.get_data_beat();
+        // for(int i = 0; i < 4;i++) begin
+            wr_transaction.set_data_beat(in_tdata);
+            wr_transaction.set_delay(0);
+        // end  
+            
+//        	in_tlast = wr_transaction.get_last;
+//            queue_mst.push_back(in_tdata[DATA_WIDTH-1:0]);
+            // axi4stream_vip_mst_mst.driver.send(wr_transaction);
+
+
+//                 WR_TRANSACTION_FAIL_1a: assert(wr_transaction.randomize());
+//            	wr_transaction.set_data(data);
+//            	 wr_transaction.set_delay(0);
+//             	wr_transaction.set_last(1'b1);
+			axi4stream_vip_mst_mst.driver.send(wr_transaction);
+//            axi4stream_vip_mst_mst.driver.send(wr_transaction);
+
+    endtask
+
+    
+    
 	initial begin
-        input_data = $fopen("input_snr-2_size13.txt", "r");
-        input_data1 = $fopen("input_snr-2_size5.txt", "r");
+	    axi4stream_vip_mst_mst = new("axi4stream_vip_mst_mst", tb_top_block_code.axi4stream_vip_mst_inst.inst.IF);
+        axi4stream_vip_mst_mst.start_master();
         arst = 1'b0;
         fork 
             begin
@@ -53,23 +93,24 @@ module tb_top_block_code();
             end
 
             begin
-                // @(rst_done);
-                // code_length = 13;
-                // while (!$feof(input_data)) begin
-    	        //     @(posedge clk);
-    	        //     $fgets(line,input_data);
-    	        //     rx_symbols <= line.atoi();
-                //     rx_symbols_valid <= 1'b1;
-                // end
-                // rx_symbols_valid <= 1'b0;
+                input_data = $fopen("input_snr-2_size13.txt", "r");
+                @(rst_done);
+                code_length = 13;
+                while (!$feof(input_data)) begin
+    	            $fgets(line,input_data);
+         			mst_gen_transaction(line.atoi(), count);
+                    count = count + 1; 
+                end
+
             end
         join
             begin
-                // @(m_axis_tlast);
+                input_data = $fopen("input_snr-2_size5.txt", "r");
+                @(m_axis_tlast);
                 code_length = 5;
-                while (!$feof(input_data1)) begin
+                while (!$feof(input_data)) begin
     	            @(posedge clk);
-    	            $fgets(line,input_data1);
+    	            $fgets(line,input_data);
     	            rx_symbols <= line.atoi();
                     rx_symbols_valid <= 1'b1;
                 end
@@ -78,16 +119,30 @@ module tb_top_block_code();
     end
 
 top_block_code  #(.DATA_WIDTH(4), .NUM_SYMBOLS(NUM_SYMBOLS))
-top_block_code_inst
+top_block_code_instance
     (
         .clk                (clk),
         .s_axis_aresetn     (arst),
         .code_length        (code_length),
-        .s_axis_tdata       (rx_symbols),
-        .s_axis_tvalid      (rx_symbols_valid),
+        .s_axis_tdata       (m_axis_tdata[7:4]),
+        .s_axis_tvalid      (m_axis_tvalid),
+        .s_axis_tready      (m_axis_tready),
+        .s_axis_tlast		(m_axis_tlast),
         .m_axis_tdata       (),
         .m_axis_tvalid      (),
         .m_axis_tlast       (m_axis_tlast)
     );
+
+axi4stream_vip_mst axi4stream_vip_mst_inst 
+    (
+        .aclk               (clk),
+        .aresetn            (arst),
+        .m_axis_tvalid      (m_axis_tvalid),
+        .m_axis_tready      (m_axis_tready),
+        .m_axis_tdata       (m_axis_tdata),
+        .m_axis_tlast		(m_axis_tlast)        
+    );
+    
+    
 
 endmodule

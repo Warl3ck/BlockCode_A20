@@ -30,6 +30,8 @@ module top_block_code #(
         s_axis_aresetn,
         s_axis_tdata,
         s_axis_tvalid,
+        s_axis_tready,
+        s_axis_tlast,
         code_length,
         //
         m_axis_tdata,
@@ -39,9 +41,11 @@ module top_block_code #(
 
     input clk;
     input s_axis_aresetn;
+    input [7:0] code_length;
     input [DATA_WIDTH - 1:0] s_axis_tdata;
     input s_axis_tvalid;
-    input [7:0] code_length;
+    input s_axis_tlast;
+    output s_axis_tready;
     output reg [12:0] m_axis_tdata;
     output reg m_axis_tvalid;
     output reg m_axis_tlast;
@@ -132,7 +136,6 @@ module top_block_code #(
         pucch_mask[4041] = 8'hFF;	pucch_mask[4042] = 8'hFF;	pucch_mask[4048] = 8'hFF;	pucch_mask[4050] = 8'hFF;	pucch_mask[4052] = 8'hFF;	pucch_mask[4059] = 8'hFF;	pucch_mask[4067] = 8'hFF;	pucch_mask[4076] = 8'hFF;	pucch_mask[4077] = 8'hFF;	pucch_mask[4078] = 8'hFF;	pucch_mask[4080] = 8'hFF;	pucch_mask[4083] = 8'hFF;	pucch_mask[4085] = 8'hFF;	pucch_mask[4088] = 8'hFF;	pucch_mask[4089] = 8'hFF;	pucch_mask[4092] = 8'hFF;
     end
 
-    reg [DATA_WIDTH - 1:0] rx_symbols_array [20];
     reg [DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
     reg rx_symbols_valid_del;
     wire strb_permutation;
@@ -169,6 +172,7 @@ module top_block_code #(
     reg [7:0] max_row;
     reg [7:0] max_column;
     reg sign;
+    reg s_axis_tready_i;
 
     reg [12:0] decoded_bits;
 
@@ -177,7 +181,7 @@ module top_block_code #(
 
     // extend symbols
     always_ff @(posedge clk) begin
-        if (s_axis_tvalid) begin
+        if (s_axis_tvalid && s_axis_tready_i) begin
 			rx_symbols_extended[NUM_SYMBOLS - 1] <= s_axis_tdata;
             for (int i = (NUM_SYMBOLS - 1); i > 0 ; i--) begin
                 rx_symbols_extended[i-1] <= rx_symbols_extended[i];
@@ -186,17 +190,17 @@ module top_block_code #(
     end
 
 
-    // create feature for permutation
-    always_ff @(posedge clk) begin
-        rx_symbols_valid_del <= s_axis_tvalid;
-    end
+    // // create strb for begin permutation
+    // always_ff @(posedge clk) begin
+    //     rx_symbols_valid_del <= s_axis_tvalid;
+    // end
 
-    assign strb_permutation = rx_symbols_valid_del && !s_axis_tvalid;
+    // assign strb_permutation = rx_symbols_valid_del && !s_axis_tvalid;
 
 
     // permution data
 	always_comb begin
-		if (strb_permutation)
+		if (s_axis_tvalid && s_axis_tlast)
 			for (int i = 1; i < 32; i++) begin
 				rx_symbols_interleaved[i] = rx_symbols_extended[(permutation_for_A20[i]) - 1];
             end
@@ -214,7 +218,7 @@ module top_block_code #(
     always_comb begin
 		next_state = XXX;
 		case (state)
-		    IDLE 			    :   if (strb_permutation)  		
+		    IDLE 			    :   if (s_axis_tlast)  		
                                         next_state = DE_MASK;
 		    					    else						
                                         next_state = IDLE;
@@ -272,7 +276,7 @@ module top_block_code #(
                     vec2[i+8]  = vec1[i+8] + vec1[i+12];        
                     vec2[i+12] = vec1[i+8] - vec1[i+12];  
                     // part 2 
-                    vec2[i+16] = vec1[i+16] + vec1[i+20];      // ?? dont have bits  
+                    vec2[i+16] = vec1[i+16] + vec1[i+20];
                     vec2[i+20] = vec1[i+16] - vec1[i+20];   
                     vec2[i+24] = vec1[i+24] + vec1[i+28];        
                     vec2[i+28] = vec1[i+24] - vec1[i+28];  
@@ -303,7 +307,7 @@ module top_block_code #(
                    vec3[i+30] = vec2_reg[i+28] - vec2_reg[i+30]; 
                end
 
-               for (int i = 0; i < 1; i++) begin // 4 matlab
+               for (int i = 0; i < 1; i++) begin // 2 matlab
                    vec4[i]    = vec3[i]    + vec3[i+1];        
                    vec4[i+1]  = vec3[i]    - vec3[i+1];
                    vec4[i+2]  = vec3[i+2]  + vec3[i+3];   
@@ -383,9 +387,15 @@ module top_block_code #(
 
 
 
-    
+    always_ff @(posedge clk) begin
+        if (s_axis_tvalid)
+            s_axis_tready_i <= 1'b1;
+        else
+            s_axis_tready_i <= 1'b0;
+    end
 
 
+    assign s_axis_tready = s_axis_tready_i;
 
 
 
