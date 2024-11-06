@@ -36,17 +36,21 @@ module top_block_code #(
         //
         m_axis_tdata,
         m_axis_tvalid,
-        m_axis_tlast
+        m_axis_tlast,
+        m_axis_tready
     );
 
     input clk;
     input s_axis_aresetn;
     input [7:0] code_length;
+    //
     input [DATA_WIDTH - 1:0] s_axis_tdata;
     input s_axis_tvalid;
     input s_axis_tlast;
     output s_axis_tready;
-    output reg [12:0] m_axis_tdata;
+    //
+    input m_axis_tready;
+    output reg [15:0] m_axis_tdata;
     output reg m_axis_tvalid;
     output reg m_axis_tlast;
 
@@ -137,9 +141,6 @@ module top_block_code #(
     end
 
     reg [DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
-    reg rx_symbols_valid_del;
-    wire strb_permutation;
-
     reg [7:0] permutation_for_A20 [32];
 
     initial begin
@@ -189,15 +190,6 @@ module top_block_code #(
         end
     end
 
-
-    // // create strb for begin permutation
-    // always_ff @(posedge clk) begin
-    //     rx_symbols_valid_del <= s_axis_tvalid;
-    // end
-
-    // assign strb_permutation = rx_symbols_valid_del && !s_axis_tvalid;
-
-
     // permution data
 	always_comb begin
 		if (s_axis_tvalid && s_axis_tlast)
@@ -229,8 +221,10 @@ module top_block_code #(
             HADAMARD_REG_1	    : 	    next_state = FIND_MAX;
             FIND_MAX            :   if (code_length > 6 && count < 128) 
                                         next_state = DE_MASK;
-                                    else                        
+                                    else if (m_axis_tready)                      
                                         next_state = IDLE;
+                                    else
+                                        next_state = FIND_MAX;
 		    default 		    : 	    next_state = XXX;
 		endcase
 	end
@@ -366,7 +360,7 @@ module top_block_code #(
                     max_val = max_i;
                     max_row = (code_length > 6 ) ? count - 1 : 0;
                     max_column = index_i;
-                    sign = vec4_reg[max_column + 1][DATA_WIDTH+4];
+                    sign = (vec4_reg[max_column + 1]/*[DATA_WIDTH+4]*/ > 0) ? 1'b1 : 1'b0;
                 end
                 decoded_bits = {sign, max_column[0], max_column[1], max_column[2], max_column[3], max_column[4], max_row[6:0]};
             end
@@ -377,7 +371,7 @@ module top_block_code #(
         vec2_reg <= vec2;
         vec4_reg <= vec4;
         if (state == FIND_MAX && ((code_length > 6 && count == 128) || (code_length <= 6))) begin
-            m_axis_tdata <= decoded_bits;
+            m_axis_tdata <= {decoded_bits, {3{1'b0}}};
             m_axis_tvalid <= 1'b1;
             m_axis_tlast <= 1'b1;
         end else begin
