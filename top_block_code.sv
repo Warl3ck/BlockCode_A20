@@ -32,6 +32,8 @@ module top_block_code #(
         s_axis_tvalid,
         s_axis_tready,
         s_axis_tlast,
+        //
+        code_length_valid,
         code_length,
         //
         m_axis_tdata,
@@ -43,6 +45,7 @@ module top_block_code #(
     input clk;
     input s_axis_aresetn;
     input [7:0] code_length;
+    input code_length_valid;
     //
     input [DATA_WIDTH - 1:0] s_axis_tdata;
     input s_axis_tvalid;
@@ -50,9 +53,9 @@ module top_block_code #(
     output s_axis_tready;
     //
     input m_axis_tready;
-    output reg [15:0] m_axis_tdata;
-    output reg m_axis_tvalid;
-    output reg m_axis_tlast;
+    output m_axis_tdata;
+    output m_axis_tvalid;
+    output m_axis_tlast;
 
     reg  [7:0] pucch_mask [4096] = '{4096{8'h01}};	
 
@@ -154,20 +157,26 @@ module top_block_code #(
         permutation_for_A20[28] = 8'h12;    permutation_for_A20[29] = 8'h13;    permutation_for_A20[30] = 8'h1E;    permutation_for_A20[31] = 8'h1F;
     end
 
+   
+	integer j = 0; 
+	reg [7:0] count = 0;
 
     reg signed  [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
-	reg signed  [DATA_WIDTH - 1:0] de_masked [32]; 
-    reg signed  [DATA_WIDTH:0] vec [32]; 
-    reg signed  [DATA_WIDTH + 1:0] vec1 [32]; 
-    reg signed  [DATA_WIDTH + 2:0] vec2 [32];
-    reg signed  [DATA_WIDTH + 2:0] vec2_reg [32];
-    reg signed  [DATA_WIDTH + 3:0] vec3 [32];  
+	reg signed  [DATA_WIDTH:0] de_masked [32]; 
+    reg signed  [DATA_WIDTH + 1:0] vec [32]; 
+    reg signed  [DATA_WIDTH + 2:0] vec1 [32]; 
+    reg signed  [DATA_WIDTH + 3:0] vec2 [32];
+    reg signed  [DATA_WIDTH + 3:0] vec2_reg [32];
+    reg signed  [DATA_WIDTH + 4:0] vec3 [32];  
     //
-    reg signed  [DATA_WIDTH + 4:0] vec4 [32]; 
-    reg signed  [DATA_WIDTH + 4:0] vec4_reg [32]; 
-    reg signed  [DATA_WIDTH + 4:0] absolute [32]; 
-    reg         [DATA_WIDTH + 4:0] max_i;
-    reg         [DATA_WIDTH + 4:0] max_val;
+    reg signed  [DATA_WIDTH + 5:0] vec4 [32]; 
+    reg signed  [DATA_WIDTH + 5:0] vec4_reg [32]; 
+    reg signed  [DATA_WIDTH + 5:0] absolute [32]; 
+    reg         [DATA_WIDTH + 5:0] max_i;
+    reg         [DATA_WIDTH + 5:0] max_val;
+    reg [3:0] counter_right = 0;
+    reg [7:0] code_length_latch;
+    
     //
     reg [7:0] index_i;
     reg [7:0] max_row;
@@ -176,9 +185,20 @@ module top_block_code #(
     reg s_axis_tready_i;
 
     reg [12:0] decoded_bits;
+    reg decoded_bit_srl;
 
-    integer count = 0;
-	integer j = 0; 
+    reg m_axis_tvalid_i;
+    reg m_axis_tlast_i;
+    
+    reg m_axis_tvalid_reg;
+    reg m_axis_tlast_reg;
+    reg m_axis_tdata_reg;
+
+    // latch code_length
+    always_ff @(posedge clk) begin
+        if (code_length_valid)
+            code_length_latch <= code_length;
+    end 
 
     // extend symbols
     always_ff @(posedge clk) begin
@@ -199,7 +219,7 @@ module top_block_code #(
 	end 
 
 	// FSM
-	typedef enum { IDLE, DE_MASK, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, XXX } statetype;
+	typedef enum { IDLE, DE_MASK, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, SEND_DATA, DLY, XXX } statetype;
 	statetype state, next_state;
 
 
@@ -218,13 +238,18 @@ module top_block_code #(
 		    HADAMARD_STAGE_0	: 	    next_state = HADAMARD_REG_0;
             HADAMARD_REG_0      :       next_state = HADAMARD_STAGE_1;
             HADAMARD_STAGE_1	: 	    next_state = HADAMARD_REG_1;
-            HADAMARD_REG_1	    : 	    next_state = FIND_MAX;
-            FIND_MAX            :   if (code_length > 6 && count < 128) 
+            HADAMARD_REG_1	    : 	    next_state = FIND_MAX;    
+            FIND_MAX            :   if (code_length_latch > 6 && count < 128) 
                                         next_state = DE_MASK;
-                                    else if (m_axis_tready)                      
-                                        next_state = IDLE;
+                                    else if (count == 128 || code_length_latch <= 6)                      
+                                        next_state = SEND_DATA;
                                     else
                                         next_state = FIND_MAX;
+            SEND_DATA           :   if (counter_right == code_length_latch - 1 && m_axis_tready)                      
+                                        next_state = IDLE;
+                                    else
+                                        next_state = SEND_DATA;
+            DLY                 :       next_state = IDLE;
 		    default 		    : 	    next_state = XXX;
 		endcase
 	end
@@ -237,17 +262,22 @@ module top_block_code #(
                 j = 0;
                 max_i = 0;
                 max_val = 0;
+                m_axis_tvalid_i = 0;
+                // counter_right = {4{1'b0}};
+                m_axis_tlast_i = 1'b0;
 
 		end
 		DE_MASK	: begin
-                if (code_length > 6) begin
+                if (code_length_latch > 6) begin
                     for (int i = 0; i < 32; i++) begin
                         de_masked[i] = (pucch_mask[i+j][7]) ? (~rx_symbols_interleaved[i] + 1) : rx_symbols_interleaved[i]; // mult on pucch_mask
                     end
                     j = j + 32;
                 end
                 else
-                    de_masked = rx_symbols_interleaved;
+                    for (int i = 0; i < 32; i++) begin
+                        de_masked[i] = {rx_symbols_interleaved[i][DATA_WIDTH - 1], rx_symbols_interleaved[i]};
+                    end
         end 
         HADAMARD_STAGE_0	: begin
                 count = count + 1;
@@ -358,28 +388,40 @@ module top_block_code #(
 
                 if (max_i > max_val) begin
                     max_val = max_i;
-                    max_row = (code_length > 6 ) ? count - 1 : 0;
+                    max_row = (code_length_latch > 6 ) ? count - 1 : 0;
                     max_column = index_i;
-                    sign = (vec4_reg[max_column + 1]/*[DATA_WIDTH+4]*/ > 0) ? 1'b1 : 1'b0;
+                    sign = (vec4_reg[max_column] > 0) ? 1'b1 : 1'b0;
                 end
                 decoded_bits = {sign, max_column[0], max_column[1], max_column[2], max_column[3], max_column[4], max_row[6:0]};
             end
+
+            SEND_DATA : begin
+                if (m_axis_tready) begin
+                    decoded_bit_srl = decoded_bits[13-counter_right-1]; 
+                    m_axis_tvalid_i = 1'b1;
+                    // m_axis_tlast_i = (counter_right == code_length_latch - 1) ? 1'b1 : 1'b0;
+                end else
+                    m_axis_tvalid_i = 1'b0;
+                    // m_axis_tlast_i = 1'b0;
+
+                if (m_axis_tready && (counter_right == code_length_latch - 1)) 
+                    m_axis_tlast_i = 1'b1;
+                else
+                    m_axis_tlast_i = 1'b0;
+
+
+                end
 		endcase
 	end
 
     always_ff @(posedge clk) begin
+        if (m_axis_tready && m_axis_tvalid_i) begin
+            counter_right <= (counter_right == code_length_latch - 1) ? {4{1'b0}} : counter_right + 1;  
+        end
+
         vec2_reg <= vec2;
         vec4_reg <= vec4;
-        if (state == FIND_MAX && ((code_length > 6 && count == 128) || (code_length <= 6))) begin
-            m_axis_tdata <= {decoded_bits, {3{1'b0}}};
-            m_axis_tvalid <= 1'b1;
-            m_axis_tlast <= 1'b1;
-        end else begin
-            m_axis_tvalid <= 1'b0;
-            m_axis_tlast <= 1'b0;
-        end
     end
-
 
 
     always_ff @(posedge clk) begin
@@ -389,9 +431,21 @@ module top_block_code #(
             s_axis_tready_i <= 1'b1;
     end
 
+    always_ff @(posedge clk) begin
+        if (!s_axis_aresetn) begin
+            m_axis_tvalid_reg <= 1'b0;
+            m_axis_tlast_reg <= 1'b0;
+            m_axis_tdata_reg <= 1'b0;
+        end else
+            m_axis_tvalid_reg <= m_axis_tvalid_i;
+            m_axis_tlast_reg <= m_axis_tlast_i;
+            m_axis_tdata_reg <= decoded_bit_srl;
+    end
 
+    assign m_axis_tdata = decoded_bit_srl;
     assign s_axis_tready = s_axis_tready_i;
-
+    assign m_axis_tvalid = m_axis_tvalid_i;
+    assign m_axis_tlast = m_axis_tlast_i;
 
 
 //    // debug
@@ -402,9 +456,9 @@ module top_block_code #(
 
 
 //   initial begin
-//       hadamard_out = $fopen("hadamard_dout.txt", "w");    
-//       hadamard_check = $fopen("hadamard_transform_check.txt", "r");    
-//       de_masked_check = $fopen("de_masked_check.txt", "r");  
+//     //   hadamard_out = $fopen("hadamard_dout.txt", "w");    
+//       hadamard_check = $fopen("D:/ubuntu_share/netlist/CRAT/Block_Code/block_code_project/src/test_data/hadamard_transform_check_8_bit.txt", "r");    
+//     //   de_masked_check = $fopen("de_masked_check_8_bit.txt", "r");  
 //   end
 
 //    always_comb begin
@@ -423,17 +477,18 @@ module top_block_code #(
 //    end
 
 //    always_comb begin
-//        if (state == HADAMARD_TRANSFORM_1) begin
+//        if (state == HADAMARD_REG_1 && code_length_latch == 4) begin
 //            foreach(vec4[i]) begin
 //                $fgets(line, hadamard_check);
-//                $fdisplay(hadamard_out, vec4[i]);
+//             //    $fdisplay(hadamard_out, vec4[i]);
 //                $display ((k+i),line.atoi(), vec4[i]);
 //                if (line.atoi() !== vec4[i]) begin
-//	    			$display ("error");
+// 	    			$display ("error");
 //                    $finish;
 //                end
 //            end  
 //            k = k + 32;
+//            $display("debug check complete");
 //        end
 //    end
 

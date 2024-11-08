@@ -16,26 +16,31 @@ module tb_top_block_code();
     localparam NUM_SYMBOLS = 20;
     localparam DATA_WIDTH = 8;
 
+    parameter string MY_PATH = "D:/ubuntu_share/netlist/CRAT/Block_Code/block_code_project/src/test_data";
+
+    
+
 	bit clk = 1'b0;
     bit arst = 1'b0;
 
+    bit [7:0] code_length;
+    bit code_length_valid;
 
     // master
     bit m_axis_tlast;
     bit m_axis_tvalid;
     wire [DATA_WIDTH-1 : 0] m_axis_tdata;
     wire m_axis_tready;
+
     // slave
     wire s_axis_tlast;
     wire s_axis_tvalid; 
-    wire [15:0] s_axis_tdata;
+    wire s_axis_tdata;
     wire s_axis_tready;
     bit decoded_bit;
 
-
     bit queue_slv [$];
-
-    bit [7:0] code_length;
+    bit queue_decode [$];
 
     integer input_data, output_data;
     integer input_data1, output_data1;
@@ -51,6 +56,10 @@ module tb_top_block_code();
     axi4stream_ready_gen ready_gen;
     // Output data process
     axi4stream_monitor_transaction slv_mon_trans;
+    // Monitor transaction queue for slave VIP
+    axi4stream_monitor_transaction slave_moniter_transaction_queue[$];
+    // Size of slave_moniter_transaction_queue
+    xil_axi4stream_uint    slave_moniter_transaction_queue_size;
 
     axi4stream_vip_mst_mst_t	axi4stream_vip_mst_mst;
     axi4stream_vip_slv_slv_t    axi4stream_vip_slv_slv;
@@ -96,9 +105,13 @@ module tb_top_block_code();
         axi4stream_vip_mst_mst.start_master();
         // start AXI SLAVE VIP
         axi4stream_vip_slv_slv = new("axi4stream_vip_slv_slv", tb_top_block_code.axi4stream_vip_slv_inst.inst.IF);
+        axi4stream_vip_slv_slv.vif_proxy.set_dummy_drive_type(XIL_AXI4STREAM_VIF_DRIVE_NONE);
         axi4stream_vip_slv_slv.start_slave();
+        axi4stream_vip_slv_slv.set_verbosity(0); // 400
 
+        
 
+        code_length_valid <= 1'b0;
         arst <= 1'b0;
         fork 
             begin
@@ -110,11 +123,24 @@ module tb_top_block_code();
 
             // write 
             begin
-                input_data = $fopen("input_snr-2_size10_8_bit.txt", "r");
-                output_data = $fopen("output_snr-2_size10_8_bit.txt", "r");
-
                 @(rst_done);
-                code_length = 10;
+
+                for (int i = 0; i < 6; i++) begin
+                    queue_slv.delete();
+                    queue_decode.delete();
+                    slave_moniter_transaction_queue.delete();
+                    count = 0;
+                    slave_moniter_transaction_queue_size = 0;
+
+
+                    input_data = $fopen($sformatf({MY_PATH, "/input_snr%0d_size%0d_8_bit.txt"}, i-2, i+2), "r");
+                    output_data = $fopen($sformatf({MY_PATH, "/output_snr%0d_size%0d_8_bit.txt"}, i-2, i+2), "r");
+                    
+                    code_length_valid <= 1'b1;
+                    code_length = i+2;
+                    #(CLK_PERIOD);
+                    code_length_valid <= 1'b0;
+
                 while (!$feof(input_data)) begin
     	            $fgets(line,input_data);
          			mst_gen_transaction(line.atoi(), count, 0);
@@ -135,78 +161,116 @@ module tb_top_block_code();
                 ready_gen.set_high_time(10);
                 axi4stream_vip_slv_slv.driver.send_tready(ready_gen);
 
-                $display(queue_slv);
 
                 forever begin
                     axi4stream_vip_slv_slv.monitor.item_collected_port.get(slv_mon_trans);
-                 	out_tdata = slv_mon_trans.get_data_beat();
+                    slave_moniter_transaction_queue.push_back(slv_mon_trans);
+                    slave_moniter_transaction_queue_size++;
+                    out_tdata = slv_mon_trans.get_data_beat();
+                    queue_decode.push_back(out_tdata[0]);   
                  	out_tlast = slv_mon_trans.get_last;
-                    foreach (queue_slv[i]) begin
-                        if (out_tdata[15-i] == queue_slv[i]) 
-                            counter_right = counter_right + 1;
+                    $display(slave_moniter_transaction_queue_size);
+                    if (slave_moniter_transaction_queue_size == (i+2)) begin
+                        break;
                     end
-
-                    if (counter_right == queue_slv.size())
-                        break;  
                 end
 
-                $display("1-st CYCLE COMPLETE");
+                $display($sformatf({MY_PATH, "/output_snr%0d_size%0d_8_bit.txt"}, i-2, i+2));
+                $display(queue_slv, queue_decode);
+            
+                if (queue_slv != queue_decode) begin
+                    $display (i, "-st CYCLE ERROR");
+                    $finish;
+                end else
+                    $display(i, "-st CYCLE COMPLETE");
+                end
 
                 #1us;
-
-
             end
 
         join
             begin
-                input_data1 = $fopen("input_snr0_size5_8_bit.txt", "r");
-                output_data1 = $fopen("output_snr0_size5_8_bit.txt", "r");
+                $display("Test complete");
+            //     input_data1 = $fopen("input_snr0_size5_8_bit.txt", "r");
+            //     output_data1 = $fopen("output_snr0_size5_8_bit.txt", "r");
 
-                // init queque
-                queue_slv.delete();
-                count = 0;
-                counter_right = 0;
+            //     // init queque
+            //     queue_slv.delete();
+            //     queue_decode.delete();
+            //     count = 0;
+            //     counter_right = 0;
 
 
-         
-                code_length = 5;
-                while (!$feof(input_data1)) begin
-    	            $fgets(line,input_data1);
-         			mst_gen_transaction(line.atoi(), count, 5);
-                    count = count + 1; 
-                end
+            //     code_length_valid <= 1'b1;
+            //     code_length = 5;
+            //     #(CLK_PERIOD);
+            //     code_length_valid <= 1'b0;
 
-                // check
-                while (!$feof(output_data1)) begin
-    	            $fgets(line,output_data1);
-                    decoded_bit = line.atobin;
-                    queue_slv.push_back(decoded_bit);  
-                end
+            //     while (!$feof(input_data1)) begin
+    	    //         $fgets(line,input_data1);
+         	// 		mst_gen_transaction(line.atoi(), count, 5);
+            //         count = count + 1; 
+            //     end
+
+            //     // check
+            //     while (!$feof(output_data1)) begin
+    	    //         $fgets(line,output_data1);
+            //         decoded_bit = line.atobin;
+            //         queue_slv.push_back(decoded_bit);  
+            //     end
                 
-                ready_gen = axi4stream_vip_slv_slv.driver.create_ready("ready_gen");
-                ready_gen.set_ready_policy(XIL_AXI4STREAM_READY_GEN_OSC);
-                ready_gen.set_low_time(30);
-                ready_gen.set_high_time(10);
-                axi4stream_vip_slv_slv.driver.send_tready(ready_gen);
+            //     ready_gen = axi4stream_vip_slv_slv.driver.create_ready("ready_gen");
+            //     ready_gen.set_ready_policy(XIL_AXI4STREAM_READY_GEN_OSC);
+            //     ready_gen.set_low_time(30);
+            //     ready_gen.set_high_time(10);
+            //     axi4stream_vip_slv_slv.driver.send_tready(ready_gen);
 
-                $display(queue_slv);
+            // //     $display(queue_slv);
 
-                forever begin
-                    axi4stream_vip_slv_slv.monitor.item_collected_port.get(slv_mon_trans);
-                 	out_tdata = slv_mon_trans.get_data_beat();
-                 	out_tlast = slv_mon_trans.get_last;
-                    foreach (queue_slv[i]) begin
-                        if (out_tdata[15-i] == queue_slv[i]) 
-                            counter_right = counter_right + 1;
-                    end
+            // //     // forever begin
+            // //     //     axi4stream_vip_slv_slv.monitor.item_collected_port.get(slv_mon_trans);
+            // //     //  	out_tdata = slv_mon_trans.get_data_beat();
+            // //     //  	out_tlast = slv_mon_trans.get_last;
+            // //     //     foreach (queue_slv[i]) begin
+            // //     //         if (out_tdata[15-i] == queue_slv[i]) 
+            // //     //             counter_right = counter_right + 1;
+            // //     //     end
 
-                    if (counter_right == queue_slv.size())
-                        break;  
-                end
+            // //     //     if (counter_right == queue_slv.size())
+            // //     //         break;  
+            // //     // end
 
-                $display("2-st CYCLE COMPLETE");
+
+			// 	@(s_axis_tvalid);
+            //     forever begin
+            //         @(posedge clk);
+            //         if (s_axis_tvalid && s_axis_tready && !s_axis_tlast) begin
+            //             queue_decode.push_back(s_axis_tdata);   
+            //         end else if (s_axis_tvalid && s_axis_tready && s_axis_tlast) begin
+            //             queue_decode.push_back(s_axis_tdata);
+            //             break;
+            //         end
+            //     end
+                    
+            //     if (queue_slv != queue_decode) 
+            //         $display ("2-stCYCLE ERROR");
+            //     else
+            //         $display("2-st CYCLE COMPLETE");
+
             end
     end
+
+    // initial begin
+    //     forever begin
+    //         axi4stream_vip_slv_slv.monitor.item_collected_port.get(slv_mon_trans);
+    //      	out_tdata = slv_mon_trans.get_data_beat();
+    //      	out_tlast = slv_mon_trans.get_last;
+    //         slave_moniter_transaction_queue.push_back(slv_mon_trans);
+    //         slave_moniter_transaction_queue_size++;
+    //         $display(slave_moniter_transaction_queue_size);
+    //         $display(slave_moniter_transaction_queue);
+    //     end
+    // end
 
 top_block_code  #(.DATA_WIDTH(DATA_WIDTH), .NUM_SYMBOLS(NUM_SYMBOLS))
 top_block_code_instance
@@ -214,6 +278,7 @@ top_block_code_instance
         .clk                (clk),
         .s_axis_aresetn     (arst),
         .code_length        (code_length),
+        .code_length_valid  (code_length_valid),
         .s_axis_tdata       (m_axis_tdata),
         .s_axis_tvalid      (m_axis_tvalid),
         .s_axis_tready      (m_axis_tready),
@@ -240,7 +305,7 @@ axi4stream_vip_slv axi4stream_vip_slv_inst
         .aresetn            (arst),
         .s_axis_tvalid      (s_axis_tvalid),
         .s_axis_tready      (s_axis_tready),
-        .s_axis_tdata       (s_axis_tdata),
+        .s_axis_tdata       ({{7{1'b0}}, s_axis_tdata}),
         .s_axis_tlast       (s_axis_tlast)
     );
 
