@@ -16,7 +16,7 @@ module tb_top_block_code();
     localparam NUM_SYMBOLS = 20;
     localparam DATA_WIDTH = 8;
 
-    parameter string MY_PATH = "D:/ubuntu_share/netlist/CRAT/Block_Code/block_code_project/src/test_data";
+    parameter string MY_PATH = "E:/Netlist/CRAT/8bit/BlockCode(A20)/test_data";
 
     
 
@@ -185,7 +185,7 @@ module tb_top_block_code();
                     $display(i, "-st CYCLE COMPLETE");
                 end
 
-                #1us;
+                #10us;
             end
 
         join

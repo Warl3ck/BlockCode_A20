@@ -143,7 +143,7 @@ module top_block_code #(
         pucch_mask[4041] = 8'hFF;	pucch_mask[4042] = 8'hFF;	pucch_mask[4048] = 8'hFF;	pucch_mask[4050] = 8'hFF;	pucch_mask[4052] = 8'hFF;	pucch_mask[4059] = 8'hFF;	pucch_mask[4067] = 8'hFF;	pucch_mask[4076] = 8'hFF;	pucch_mask[4077] = 8'hFF;	pucch_mask[4078] = 8'hFF;	pucch_mask[4080] = 8'hFF;	pucch_mask[4083] = 8'hFF;	pucch_mask[4085] = 8'hFF;	pucch_mask[4088] = 8'hFF;	pucch_mask[4089] = 8'hFF;	pucch_mask[4092] = 8'hFF;
     end
 
-    reg [DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
+   
     reg [7:0] permutation_for_A20 [32];
 
     initial begin
@@ -161,8 +161,10 @@ module top_block_code #(
 	integer j = 0; 
 	reg [7:0] count = 0;
 
+ 	reg 		[DATA_WIDTH - 1:0] rx_symbols_extended [32] = '{32{0}};
     reg signed  [DATA_WIDTH - 1:0] rx_symbols_interleaved [32] = '{32{0}};
-	reg signed  [DATA_WIDTH:0] de_masked [32]; 
+	reg signed  [DATA_WIDTH - 1:0] de_masked [32]; 
+	reg signed  [DATA_WIDTH - 1:0] de_masked_reg [32]; 
     reg signed  [DATA_WIDTH + 1:0] vec [32]; 
     reg signed  [DATA_WIDTH + 2:0] vec1 [32]; 
     reg signed  [DATA_WIDTH + 3:0] vec2 [32];
@@ -184,6 +186,9 @@ module top_block_code #(
     reg sign;
     reg s_axis_tready_i;
 
+	reg s_axis_tlast_delay;
+	reg s_axis_tlast_delay0;
+
     reg [12:0] decoded_bits;
     reg decoded_bit_srl;
 
@@ -202,7 +207,11 @@ module top_block_code #(
 
     // extend symbols
     always_ff @(posedge clk) begin
-        if (s_axis_tvalid && s_axis_tready_i) begin
+		if (state == SEND_DATA) begin
+			foreach (rx_symbols_extended[i]) begin
+                rx_symbols_extended[i] <= {DATA_WIDTH{1'b0}};
+            end
+		end else if (s_axis_tvalid && s_axis_tready_i) begin
 			rx_symbols_extended[NUM_SYMBOLS - 1] <= s_axis_tdata;
             for (int i = (NUM_SYMBOLS - 1); i > 0 ; i--) begin
                 rx_symbols_extended[i-1] <= rx_symbols_extended[i];
@@ -211,15 +220,30 @@ module top_block_code #(
     end
 
     // permution data
-	always_comb begin
-		if (s_axis_tvalid && s_axis_tlast)
-			for (int i = 1; i < 32; i++) begin
-				rx_symbols_interleaved[i] = rx_symbols_extended[(permutation_for_A20[i]) - 1];
-            end
+	always_ff @(posedge clk) begin
+		if (state == SEND_DATA) 
+			foreach (rx_symbols_interleaved[i]) 
+                rx_symbols_interleaved[i] <= {DATA_WIDTH{1'b0}};
+ 		else if (s_axis_tlast_delay) 
+			for (int i = 1; i < 32; i++) 
+				rx_symbols_interleaved[i] <= rx_symbols_extended[(permutation_for_A20[i]) - 1];
 	end 
 
+	always_ff @(posedge clk) begin
+		if (!s_axis_aresetn)
+			s_axis_tlast_delay <= {1'b0};
+		else if (s_axis_tvalid && s_axis_tlast) 
+			s_axis_tlast_delay <= s_axis_tlast;
+		else
+			s_axis_tlast_delay <= 1'b0;
+	end
+
+	always_ff @(posedge clk) begin
+		s_axis_tlast_delay0 <= s_axis_tlast_delay;
+	end
+
 	// FSM
-	typedef enum { IDLE, DE_MASK, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, SEND_DATA, DLY, XXX } statetype;
+	typedef enum { IDLE, DE_MASK, DE_MASK_REG, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, SEND_DATA, DLY, XXX } statetype;
 	statetype state, next_state;
 
 
@@ -230,11 +254,12 @@ module top_block_code #(
     always_comb begin
 		next_state = XXX;
 		case (state)
-		    IDLE 			    :   if (s_axis_tlast && s_axis_tvalid)  		
+		    IDLE 			    :   if (s_axis_tlast_delay0)  		
                                         next_state = DE_MASK;
 		    					    else						
                                         next_state = IDLE;
-		    DE_MASK		        : 	    next_state = HADAMARD_STAGE_0;
+		    DE_MASK		        : 	    next_state = DE_MASK_REG;
+		    DE_MASK_REG		    : 	    next_state = HADAMARD_STAGE_0;
 		    HADAMARD_STAGE_0	: 	    next_state = HADAMARD_REG_0;
             HADAMARD_REG_0      :       next_state = HADAMARD_STAGE_1;
             HADAMARD_STAGE_1	: 	    next_state = HADAMARD_REG_1;
@@ -265,6 +290,12 @@ module top_block_code #(
                 m_axis_tvalid_i = 0;
                 // counter_right = {4{1'b0}};
                 m_axis_tlast_i = 1'b0;
+				decoded_bit_srl = 1'b0;
+
+				foreach (de_masked[i]) begin
+                    de_masked[i] = {DATA_WIDTH{1'b0}};
+                end
+				
 
 		end
 		DE_MASK	: begin
@@ -276,35 +307,37 @@ module top_block_code #(
                 end
                 else
                     for (int i = 0; i < 32; i++) begin
-                        de_masked[i] = {rx_symbols_interleaved[i][DATA_WIDTH - 1], rx_symbols_interleaved[i]};
+                        de_masked[i] = rx_symbols_interleaved[i];
                     end
         end 
+		DE_MASK_REG : begin
+		end
         HADAMARD_STAGE_0	: begin
                 count = count + 1;
 
                 for (int i = 0; i < 16; i++) begin
-                    vec[i] = de_masked[i] + de_masked[i+16];     
-                    vec[i+16] = de_masked[i] - de_masked[i+16];     
+                    vec[i] = de_masked_reg[i] + de_masked_reg[i+16];
+                    vec[i+16] = de_masked_reg[i] - de_masked_reg[i+16];
                 end
 
                 for (int i = 0; i < 8; i++) begin
-                    vec1[i]    = vec[i] + vec[i+8];        
-                    vec1[i+8]  = vec[i] - vec[i+8];   
-                    vec1[i+16] = vec[i+16] + vec[i+24];        
-                    vec1[i+24] = vec[i+16] - vec[i+24];  
+                    vec1[i]    = vec[i] + vec[i+8];
+                    vec1[i+8]  = vec[i] - vec[i+8];
+                    vec1[i+16] = vec[i+16] + vec[i+24];
+                    vec1[i+24] = vec[i+16] - vec[i+24];
                 end
 
                 for (int i = 0; i < 4; i++) begin // 8 matlab
                     // part 1
-                    vec2[i]    = vec1[i] + vec1[i+4];        
-                    vec2[i+4]  = vec1[i] - vec1[i+4];   
-                    vec2[i+8]  = vec1[i+8] + vec1[i+12];        
-                    vec2[i+12] = vec1[i+8] - vec1[i+12];  
+                    vec2[i]    = vec1[i] + vec1[i+4];
+                    vec2[i+4]  = vec1[i] - vec1[i+4];
+                    vec2[i+8]  = vec1[i+8] + vec1[i+12];
+                    vec2[i+12] = vec1[i+8] - vec1[i+12];
                     // part 2 
                     vec2[i+16] = vec1[i+16] + vec1[i+20];
-                    vec2[i+20] = vec1[i+16] - vec1[i+20];   
-                    vec2[i+24] = vec1[i+24] + vec1[i+28];        
-                    vec2[i+28] = vec1[i+24] - vec1[i+28];  
+                    vec2[i+20] = vec1[i+16] - vec1[i+20];
+                    vec2[i+24] = vec1[i+24] + vec1[i+28];
+                    vec2[i+28] = vec1[i+24] - vec1[i+28];
                 end
         end
 
@@ -314,57 +347,57 @@ module top_block_code #(
         HADAMARD_STAGE_1 : begin
 
                for (int i = 0; i < 2; i++) begin // 4 matlab
-                   vec3[i]    = vec2_reg[i]    + vec2_reg[i+2];        
-                   vec3[i+2]  = vec2_reg[i]    - vec2_reg[i+2]; 
-                   vec3[i+4]  = vec2_reg[i+4]  + vec2_reg[i+6];       
-                   vec3[i+6]  = vec2_reg[i+4]  - vec2_reg[i+6]; 
-                   vec3[i+8]  = vec2_reg[i+8]  + vec2_reg[i+10]; 
-                   vec3[i+10] = vec2_reg[i+8]  - vec2_reg[i+10]; 
-                   vec3[i+12] = vec2_reg[i+12] + vec2_reg[i+14]; 
-                   vec3[i+14] = vec2_reg[i+12] - vec2_reg[i+14]; 
-                   vec3[i+16] = vec2_reg[i+16] + vec2_reg[i+18];        
-                   vec3[i+18] = vec2_reg[i+16] - vec2_reg[i+18]; 
-                   vec3[i+20] = vec2_reg[i+20] + vec2_reg[i+22]; 
-                   vec3[i+22] = vec2_reg[i+20] - vec2_reg[i+22]; 
-                   vec3[i+24] = vec2_reg[i+24] + vec2_reg[i+26];   
-                   vec3[i+26] = vec2_reg[i+24] - vec2_reg[i+26]; 
-                   vec3[i+28] = vec2_reg[i+28] + vec2_reg[i+30]; 
-                   vec3[i+30] = vec2_reg[i+28] - vec2_reg[i+30]; 
+                   vec3[i]    = vec2_reg[i]    + vec2_reg[i+2];
+                   vec3[i+2]  = vec2_reg[i]    - vec2_reg[i+2];
+                   vec3[i+4]  = vec2_reg[i+4]  + vec2_reg[i+6];
+                   vec3[i+6]  = vec2_reg[i+4]  - vec2_reg[i+6];
+                   vec3[i+8]  = vec2_reg[i+8]  + vec2_reg[i+10];
+                   vec3[i+10] = vec2_reg[i+8]  - vec2_reg[i+10];
+                   vec3[i+12] = vec2_reg[i+12] + vec2_reg[i+14];
+                   vec3[i+14] = vec2_reg[i+12] - vec2_reg[i+14];
+                   vec3[i+16] = vec2_reg[i+16] + vec2_reg[i+18];
+                   vec3[i+18] = vec2_reg[i+16] - vec2_reg[i+18];
+                   vec3[i+20] = vec2_reg[i+20] + vec2_reg[i+22];
+                   vec3[i+22] = vec2_reg[i+20] - vec2_reg[i+22];
+                   vec3[i+24] = vec2_reg[i+24] + vec2_reg[i+26];
+                   vec3[i+26] = vec2_reg[i+24] - vec2_reg[i+26];
+                   vec3[i+28] = vec2_reg[i+28] + vec2_reg[i+30];
+                   vec3[i+30] = vec2_reg[i+28] - vec2_reg[i+30];
                end
 
                for (int i = 0; i < 1; i++) begin // 2 matlab
-                   vec4[i]    = vec3[i]    + vec3[i+1];        
+                   vec4[i]    = vec3[i]    + vec3[i+1];
                    vec4[i+1]  = vec3[i]    - vec3[i+1];
-                   vec4[i+2]  = vec3[i+2]  + vec3[i+3];   
-                   vec4[i+3]  = vec3[i+2]  - vec3[i+3]; 
-                   vec4[i+4]  = vec3[i+4]  + vec3[i+5]; 
-                   vec4[i+5]  = vec3[i+4]  - vec3[i+5]; 
-                   vec4[i+6]  = vec3[i+6]  + vec3[i+7]; 
-                   vec4[i+7]  = vec3[i+6]  - vec3[i+7]; 
-                   vec4[i+8]  = vec3[i+8]  + vec3[i+9]; 
+                   vec4[i+2]  = vec3[i+2]  + vec3[i+3];
+                   vec4[i+3]  = vec3[i+2]  - vec3[i+3];
+                   vec4[i+4]  = vec3[i+4]  + vec3[i+5];
+                   vec4[i+5]  = vec3[i+4]  - vec3[i+5];
+                   vec4[i+6]  = vec3[i+6]  + vec3[i+7];
+                   vec4[i+7]  = vec3[i+6]  - vec3[i+7];
+                   vec4[i+8]  = vec3[i+8]  + vec3[i+9];
                    vec4[i+9]  = vec3[i+8]  - vec3[i+9];
-                   vec4[i+10] = vec3[i+10] + vec3[i+11]; 
+                   vec4[i+10] = vec3[i+10] + vec3[i+11];
                    vec4[i+11] = vec3[i+10] - vec3[i+11];
-                   vec4[i+12] = vec3[i+12] + vec3[i+13]; 
+                   vec4[i+12] = vec3[i+12] + vec3[i+13];
                    vec4[i+13] = vec3[i+12] - vec3[i+13];
-                   vec4[i+14] = vec3[i+14] + vec3[i+15];        
-                   vec4[i+15] = vec3[i+14] - vec3[i+15]; 
-                   vec4[i+16] = vec3[i+16] + vec3[i+17];        
-                   vec4[i+17] = vec3[i+16] - vec3[i+17]; 
-                   vec4[i+18] = vec3[i+18] + vec3[i+19];        
+                   vec4[i+14] = vec3[i+14] + vec3[i+15];
+                   vec4[i+15] = vec3[i+14] - vec3[i+15];
+                   vec4[i+16] = vec3[i+16] + vec3[i+17];
+                   vec4[i+17] = vec3[i+16] - vec3[i+17];
+                   vec4[i+18] = vec3[i+18] + vec3[i+19];
                    vec4[i+19] = vec3[i+18] - vec3[i+19];
-                   vec4[i+20] = vec3[i+20] + vec3[i+21];        
-                   vec4[i+21] = vec3[i+20] - vec3[i+21];  
-                   vec4[i+22] = vec3[i+22] + vec3[i+23];        
-                   vec4[i+23] = vec3[i+22] - vec3[i+23]; 
-                   vec4[i+24] = vec3[i+24] + vec3[i+25]; 
-                   vec4[i+25] = vec3[i+24] - vec3[i+25]; 
-                   vec4[i+26] = vec3[i+26] + vec3[i+27];  
+                   vec4[i+20] = vec3[i+20] + vec3[i+21];
+                   vec4[i+21] = vec3[i+20] - vec3[i+21];
+                   vec4[i+22] = vec3[i+22] + vec3[i+23];
+                   vec4[i+23] = vec3[i+22] - vec3[i+23];
+                   vec4[i+24] = vec3[i+24] + vec3[i+25];
+                   vec4[i+25] = vec3[i+24] - vec3[i+25];
+                   vec4[i+26] = vec3[i+26] + vec3[i+27];
                    vec4[i+27] = vec3[i+26] - vec3[i+27];
-                   vec4[i+28] = vec3[i+28] + vec3[i+29]; 
+                   vec4[i+28] = vec3[i+28] + vec3[i+29];
                    vec4[i+29] = vec3[i+28] - vec3[i+29];
-                   vec4[i+30] = vec3[i+30] + vec3[i+31];        
-                   vec4[i+31] = vec3[i+30] - vec3[i+31];  
+                   vec4[i+30] = vec3[i+30] + vec3[i+31];
+                   vec4[i+31] = vec3[i+30] - vec3[i+31];
                end
             end 
 
@@ -419,6 +452,7 @@ module top_block_code #(
             counter_right <= (counter_right == code_length_latch - 1) ? {4{1'b0}} : counter_right + 1;  
         end
 
+		de_masked_reg <= de_masked;
         vec2_reg <= vec2;
         vec4_reg <= vec4;
     end
@@ -448,24 +482,22 @@ module top_block_code #(
     assign m_axis_tlast = m_axis_tlast_i;
 
 
-//    // debug
-//   integer hadamard_out, hadamard_check;
-//   string line, line_m;
-//   integer de_masked_check;
-//   integer k = 0;
+  	// debug
+  	// integer hadamard_out, hadamard_check;
+  	// string line, line_m;
+  	// integer de_masked_check;
+  	// integer k = 0;
 
 
-//   initial begin
-//     //   hadamard_out = $fopen("hadamard_dout.txt", "w");    
-//       hadamard_check = $fopen("D:/ubuntu_share/netlist/CRAT/Block_Code/block_code_project/src/test_data/hadamard_transform_check_8_bit.txt", "r");    
-//     //   de_masked_check = $fopen("de_masked_check_8_bit.txt", "r");  
-//   end
+	// initial begin
+	// 	hadamard_check = $fopen("E:/Netlist/CRAT/8bit/BlockCode(A20)/test_data/hadamard_transform_check_8_bit.txt", "r");
+	// 	de_masked_check = $fopen("E:/Netlist/CRAT/8bit/BlockCode(A20)/test_data/de_masked_check_8_bit.txt", "r");
+	// end
 
 //    always_comb begin
-//        if (state == DE_MASK) begin
+//        if (state == DE_MASK && code_length_latch == 7) begin
 //            foreach(de_masked[i]) begin
 //                $fgets(line_m, de_masked_check);
-//                // $fdisplay(hadamard_out, vec4[i]);
 //                $display ((k+i),line_m.atoi(), de_masked[i]);
 //                if (line_m.atoi() !== de_masked[i]) begin
 // 	    			$display ("error");
@@ -476,20 +508,19 @@ module top_block_code #(
 //        end
 //    end
 
-//    always_comb begin
-//        if (state == HADAMARD_REG_1 && code_length_latch == 4) begin
-//            foreach(vec4[i]) begin
-//                $fgets(line, hadamard_check);
-//             //    $fdisplay(hadamard_out, vec4[i]);
-//                $display ((k+i),line.atoi(), vec4[i]);
-//                if (line.atoi() !== vec4[i]) begin
-// 	    			$display ("error");
-//                    $finish;
-//                end
-//            end  
-//            k = k + 32;
-//            $display("debug check complete");
-//        end
-//    end
+	// always_comb begin
+	//     if (state == HADAMARD_REG_1 && code_length_latch == 7) begin
+	//         foreach(vec4[i]) begin
+	//             $fgets(line, hadamard_check);
+	//             $display ((k+i),line.atoi(), vec4[i]);
+	//             if (line.atoi() !== vec4[i]) begin
+	//     			$display ("error");
+	//                 $finish;
+	//             end
+	//         end  
+	//         k = k + 32;
+	//         $display("debug check complete");
+	//     end
+	// end
 
 endmodule
