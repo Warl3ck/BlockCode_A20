@@ -23,7 +23,7 @@ module tb_block_decode_a20 ();
 	bit clk = 1'b0;
     bit arst = 1'b0;
 
-    bit [7:0] code_length;
+    bit [3:0] code_length;
     bit code_length_valid;
 
     // master
@@ -140,7 +140,7 @@ module tb_block_decode_a20 ();
 
                 while (!$feof(input_data)) begin
     	            $fgets(line,input_data);
-         			mst_gen_transaction(line.atoi(), count, 0);
+         			mst_gen_transaction(line.atoi(), count, 5);
                     count = count + 1; 
                 end
 
@@ -172,7 +172,6 @@ module tb_block_decode_a20 ();
                 end
 
                 $display($sformatf({MY_PATH, "/output_snr%0d_size%0d_8_bit.txt"}, i-3, i+1));
-                $display(queue_slv, queue_decode);
             
                 if (queue_slv != queue_decode) begin
                     $display (i+1, "-st CYCLE ERROR");
@@ -181,7 +180,7 @@ module tb_block_decode_a20 ();
                     $display(i+1, "-st CYCLE COMPLETE");
                 end
 
-                #10us;
+                // #10us;
             end
 
         join
@@ -190,7 +189,7 @@ module tb_block_decode_a20 ();
             end
     end
 
-block_decode_a20  #(.DATA_WIDTH(DATA_WIDTH), .NUM_SYMBOLS(NUM_SYMBOLS))
+block_decode_a20  #(.DATA_WIDTH(DATA_WIDTH)) // .NUM_SYMBOLS(NUM_SYMBOLS))
 block_decode_a20_instance
     (
         .clk                (clk),

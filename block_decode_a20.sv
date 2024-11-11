@@ -23,7 +23,7 @@
 module block_decode_a20 #(
 
 		parameter DATA_WIDTH = 8,
-		parameter NUM_SYMBOLS = 20
+		localparam NUM_SYMBOLS = 20
 	)
     (
         clk,
@@ -44,7 +44,7 @@ module block_decode_a20 #(
 
     input clk;
     input s_axis_aresetn;
-    input [7:0] code_length;
+    input [3:0] code_length;
     input code_length_valid;
     //
     input [DATA_WIDTH - 1:0] s_axis_tdata;
@@ -179,16 +179,15 @@ module block_decode_a20 #(
     reg         [DATA_WIDTH + 5:0] max_val;
 	//
     reg [3:0] counter_right = 0;
-    reg [7:0] code_length_latch;
-	reg [7:0] count_code_length_latch;
-    reg [7:0] index_i;
-    reg [7:0] max_row;
-    reg [7:0] max_column;
+    reg [3:0] code_length_latch;
+	reg [3:0] count_code_length_latch;
+    reg [6:0] index_i;
+    reg [6:0] max_row;
+    reg [6:0] max_column;
     reg sign;
     reg s_axis_tready_i;
 
 	reg s_axis_tlast_delay;
-	reg [1:0] s_axis_tlast_delay_srl;
 
     reg [12:0] decoded_bits;
     reg decoded_bit_srl;
@@ -197,7 +196,7 @@ module block_decode_a20 #(
     reg m_axis_tlast_i;
     
 	// FSM
-	typedef enum { IDLE, DE_MASK, DE_MASK_REG, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, SEND_DATA, XXX } statetype;
+	typedef enum { IDLE, DECODE_START, INTERLEAVED_REG, DE_MASK, DE_MASK_REG, HADAMARD_STAGE_0, HADAMARD_REG_0, HADAMARD_STAGE_1, HADAMARD_REG_1, FIND_MAX, SEND_DATA, XXX } statetype;
 	statetype state, next_state;
 
 
@@ -222,7 +221,7 @@ module block_decode_a20 #(
 		rx_symbols_interleaved_delay <= rx_symbols_interleaved;
 		if (s_axis_tlast_delay) 
 			for (int i = 1; i < 32; i++) 
-				rx_symbols_interleaved[i] <= rx_symbols_extended[(permutation_for_A20[i]) - 1];
+				rx_symbols_interleaved[i] <= rx_symbols_extended[permutation_for_A20[i] - 1];
 	end 
 
 	always_ff @(posedge clk) begin
@@ -237,7 +236,6 @@ module block_decode_a20 #(
 	// pipeline regs
 	always_ff @(posedge clk) begin
 		count_code_length_latch <= code_length_latch - 1; 
-		s_axis_tlast_delay_srl <= {s_axis_tlast_delay_srl[0],s_axis_tlast_delay};
 		de_masked_reg <= de_masked;
 		vec2_reg <= vec2;
 		vec4_reg <= vec4;
@@ -264,10 +262,12 @@ module block_decode_a20 #(
     always_comb begin
 		next_state = XXX;
 		case (state)
-		    IDLE 			    :   if (s_axis_tlast_delay_srl[1])
-                                        next_state = DE_MASK;
+		    IDLE 			    :   if (s_axis_tlast_delay)
+                                        next_state = DECODE_START;
 		    					    else
                                         next_state = IDLE;
+			DECODE_START		:		next_state = INTERLEAVED_REG;
+			INTERLEAVED_REG		: 		next_state = DE_MASK;
 		    DE_MASK		        : 	    next_state = DE_MASK_REG;
 		    DE_MASK_REG		    : 	    next_state = HADAMARD_STAGE_0;
 		    HADAMARD_STAGE_0	: 	    next_state = HADAMARD_REG_0;
@@ -299,6 +299,10 @@ module block_decode_a20 #(
 				decoded_bit_srl = 1'b0;
 				s_axis_tready_i = 1'b1;
 		end
+
+		DECODE_START : begin
+			s_axis_tready_i = 1'b0;
+		end
 		
 		DE_MASK	: begin
 
@@ -311,11 +315,7 @@ module block_decode_a20 #(
         	    for (int i = 0; i < 32; i++) begin
         	        de_masked[i] = rx_symbols_interleaved_delay[i];
         	    end
-				s_axis_tready_i = 1'b0;
         end 
-		
-		DE_MASK_REG : begin
-		end
 
         HADAMARD_STAGE_0	: begin
 
@@ -343,9 +343,6 @@ module block_decode_a20 #(
                     vec2[i+24] = vec1[i+24] + vec1[i+28];
                     vec2[i+28] = vec1[i+24] - vec1[i+28];
                 end
-        end
-
-        HADAMARD_REG_0 : begin
         end
 
         HADAMARD_STAGE_1 : begin
