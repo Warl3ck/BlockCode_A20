@@ -16,9 +16,9 @@ module tb_block_decode_a20 ();
     localparam NUM_SYMBOLS = 20;
     localparam DATA_WIDTH = 8;
 
-    parameter string MY_PATH = "E:/Netlist/CRAT/8bit/BlockCode(A20)/test_data";
+    parameter string MY_PATH = "D:/ubuntu_share/netlist/CRAT/Block_Code/8_bit/BlockCode(A20)_upd/BlockCode(A20)/test_data";
 
-    
+
 
 	bit clk = 1'b0;
     bit arst = 1'b0;
